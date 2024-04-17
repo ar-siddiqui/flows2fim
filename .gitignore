@@ -21,6 +21,9 @@ builds/*
 # Go workspace file
 go.work
 
+# VSCode
+.vscode/launch.json
+
 # Data file
 *.csv
 *.vrt
@@ -30,3 +33,4 @@ go.work
 # Test data
 !testdata/*
 testdata/outputs/*
+
