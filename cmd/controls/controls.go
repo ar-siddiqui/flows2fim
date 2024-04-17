@@ -6,10 +6,11 @@ import (
 	"encoding/csv"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"strconv"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 
 	_ "modernc.org/sqlite"
 )
@@ -140,7 +141,7 @@ func TraverseUpstream(db *sql.DB, flows map[int]float32, startReachID int, contr
 		// Get the flow for the current reach from the flows map
 		flow, ok := flows[current.ReachID]
 		if !ok {
-			log.Printf("Flow not found for reach %d", current.ReachID)
+			log.Warnf("Flow not found for reach %d", current.ReachID)
 			flow = 0
 		}
 
@@ -245,6 +246,7 @@ func Run(args []string) (err error) {
 	if err != nil {
 		return fmt.Errorf("error connecting to database: %v", err)
 	}
+	defer db.Close()
 
 	results, err := TraverseUpstream(db, flows, startReachID, float32(startControlStage))
 	if err != nil {

@@ -2,7 +2,10 @@ module flows2fim
 
 go 1.22.1
 
-require modernc.org/sqlite v1.29.5
+require (
+	github.com/sirupsen/logrus v1.9.3
+	modernc.org/sqlite v1.29.5
+)
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect

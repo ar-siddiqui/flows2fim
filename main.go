@@ -3,10 +3,14 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
+	"flows2fim/cmd/branches"
 	"flows2fim/cmd/controls"
 	"flows2fim/cmd/fim"
 	"flows2fim/internal/config"
+
+	log "github.com/sirupsen/logrus"
 )
 
 var usage string = `Usage of flows2fim:
@@ -14,6 +18,7 @@ var usage string = `Usage of flows2fim:
 Commands:
  - controls: Given a flow file and a reach database. Create controls table of reach flows and downstream boundary conditions.
  - fim: Given a control table and a fim library folder. Create a flood inundation VRT for the control conditions.
+ - branches:
 Notes:
  - 'fim' command needs access to 'gdalbuildvrt' program. It must be installed separately and made available in Path.
 `
@@ -21,6 +26,7 @@ Notes:
 func main() {
 
 	config.LoadConfig()
+	log.SetLevel(config.GlobalConfig.LogLevel)
 
 	if len(os.Args) < 2 {
 		fmt.Println("Please provide a command")
@@ -29,6 +35,7 @@ func main() {
 	}
 
 	var err error
+	startTime := time.Now() // Start timing the execution
 
 	// Run functions should perform all print statements except error
 
@@ -40,6 +47,8 @@ func main() {
 		err = controls.Run(os.Args[2:])
 	case "fim":
 		_, err = fim.Run(os.Args[2:])
+	case "branches":
+		err = branches.Run(os.Args[2:])
 	default:
 		fmt.Println("Unknown command:", os.Args[1])
 		os.Exit(1)
@@ -49,4 +58,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+
+	elapsed := time.Since(startTime)
+	log.Debugf("Execution compeleted in %v meiliseconds", elapsed.Milliseconds())
 }
