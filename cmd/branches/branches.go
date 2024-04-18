@@ -23,20 +23,25 @@ CLI flag syntax. The following forms are permitted:
 Arguments:`
 
 type reach struct {
-	id    int
-	outId int
-	// streamOrder  int
-	length float64
-	flow   float64
+	id          int
+	outId       int
+	streamOrder int
+	length      float64
+	flow        float64
 }
 
-type insertRequest struct {
+type branch struct {
 	id            int
 	reaches       string
 	controlBranch interface{}
 }
 
-var insertRequests = make(chan insertRequest, 100) // Adjust buffer size as necessary
+type observationPoint struct {
+	id int
+}
+
+var branchInserts = make(chan branch, 100)                     // Adjust buffer size as necessary
+var observationPointInserts = make(chan observationPoint, 100) // Adjust buffer size as necessary
 
 func isSignificantChange(flow1, flow2, threshold float64) bool {
 	return abs(flow2-flow1)/flow1 > threshold
@@ -56,7 +61,7 @@ func reverseSlice(slice []int) {
 }
 
 func fetchUpstreamReaches(db *sql.DB, outReach int) ([]reach, error) {
-	rows, err := db.Query("SELECT id, out_id, length, flow FROM reaches WHERE out_id = ?", outReach)
+	rows, err := db.Query("SELECT id, out_id, stream_order, length, flow FROM reaches WHERE out_id = ?", outReach)
 	if err != nil {
 		// Check if the error is because of no rows
 		if err == sql.ErrNoRows {
@@ -70,7 +75,7 @@ func fetchUpstreamReaches(db *sql.DB, outReach int) ([]reach, error) {
 	var upstreamReaches []reach
 	for rows.Next() {
 		var r reach
-		if err := rows.Scan(&r.id, &r.outId, &r.length, &r.flow); err != nil {
+		if err := rows.Scan(&r.id, &r.outId, &r.streamOrder, &r.length, &r.flow); err != nil {
 			return nil, err
 		}
 		upstreamReaches = append(upstreamReaches, r)
@@ -84,7 +89,7 @@ func fetchUpstreamReaches(db *sql.DB, outReach int) ([]reach, error) {
 }
 
 func fetchDownStreamMostReaches(db *sql.DB) ([]reach, error) {
-	rows, err := db.Query("SELECT id, length, flow FROM reaches WHERE out_id is null")
+	rows, err := db.Query("SELECT id, stream_order, length, flow FROM reaches WHERE out_id is null")
 	if err != nil {
 		// Check if the error is because of no rows
 		if err == sql.ErrNoRows {
@@ -98,7 +103,7 @@ func fetchDownStreamMostReaches(db *sql.DB) ([]reach, error) {
 	var downStreamMostReaches []reach
 	for rows.Next() {
 		var r reach
-		if err := rows.Scan(&r.id, &r.length, &r.flow); err != nil {
+		if err := rows.Scan(&r.id, &r.streamOrder, &r.length, &r.flow); err != nil {
 			return nil, err
 		}
 		downStreamMostReaches = append(downStreamMostReaches, r)
@@ -120,14 +125,14 @@ func processReach(db *sql.DB, current reach, wg *sync.WaitGroup, dbMutex *sync.R
 
 	for {
 		dbMutex.RLock()
-		upstream, err := fetchUpstreamReaches(db, current.id)
+		upstreamReaches, err := fetchUpstreamReaches(db, current.id)
 		dbMutex.RUnlock()
 		if err != nil {
 			fmt.Printf("error fetching upstream reaches for %d: %v\n", current.id, err)
 			return
 		}
 
-		if len(upstream) != 1 || currentLength+upstream[0].length > maxLength || isSignificantChange(currentFlow, upstream[0].flow, flowDeltaThrsh) {
+		if len(upstreamReaches) == 0 || (len(upstreamReaches) == 1 && (upstreamReaches[0].length > maxLength || isSignificantChange(currentFlow, upstreamReaches[0].flow, flowDeltaThrsh))) {
 			reverseSlice(grouped)
 			reachesJSON, _ := json.Marshal(grouped)
 			reachesStr := string(reachesJSON)
@@ -137,21 +142,79 @@ func processReach(db *sql.DB, current reach, wg *sync.WaitGroup, dbMutex *sync.R
 			}
 
 			// Send insert request to the channel instead of executing it
-			insertRequests <- insertRequest{
+			branchInserts <- branch{
 				id:            current.id,
 				reaches:       reachesStr,
 				controlBranch: controlBranchValue,
 			}
-			for _, upReach := range upstream {
+			for _, upReach := range upstreamReaches {
 				wg.Add(1)
 				go processReach(db, upReach, wg, dbMutex, maxLength, flowDeltaThrsh)
 			}
 			break
-		} else {
-			current = upstream[0]
+		} else if len(upstreamReaches) == 1 {
+			current = upstreamReaches[0]
 			grouped = append(grouped, current.id)
 			currentLength += current.length
 			currentFlow = current.flow
+		} else {
+			countFlowMatch := 0
+			countStreamOrderMatch := 0
+			flowMatchReach := reach{}
+			streamOrderMatchReach := reach{}
+
+			for _, r := range upstreamReaches {
+				if !isSignificantChange(currentFlow, r.flow, flowDeltaThrsh) {
+					countFlowMatch += 1
+					flowMatchReach = r
+				}
+				if r.streamOrder == current.streamOrder {
+					countStreamOrderMatch += 1
+					streamOrderMatchReach = r
+				}
+			}
+
+			if countFlowMatch != 1 || countStreamOrderMatch != 1 || flowMatchReach != streamOrderMatchReach {
+				reverseSlice(grouped)
+				reachesJSON, _ := json.Marshal(grouped)
+				reachesStr := string(reachesJSON)
+				var controlBranchValue interface{} = controlBranch
+				if controlBranch == 0 {
+					controlBranchValue = nil
+				}
+
+				// Send insert request to the channel instead of executing it
+				branchInserts <- branch{
+					id:            current.id,
+					reaches:       reachesStr,
+					controlBranch: controlBranchValue,
+				}
+				for _, upReach := range upstreamReaches {
+					wg.Add(1)
+					go processReach(db, upReach, wg, dbMutex, maxLength, flowDeltaThrsh)
+				}
+				break
+			} else {
+				for _, upReach := range upstreamReaches {
+					if upReach == flowMatchReach {
+						continue
+					}
+					wg.Add(1)
+					go processReach(db, upReach, wg, dbMutex, maxLength, flowDeltaThrsh)
+				}
+
+				// Send insert request to the channel instead of executing it
+				fmt.Println(countFlowMatch, countStreamOrderMatch, flowMatchReach, streamOrderMatchReach, current, upstreamReaches)
+				observationPointInserts <- observationPoint{
+					id: current.id,
+				}
+
+				current = flowMatchReach
+				grouped = append(grouped, current.id)
+				currentLength += current.length
+				currentFlow = current.flow
+
+			}
 		}
 	}
 }
@@ -220,6 +283,10 @@ func Run(args []string) error {
 		branch_id INTEGER PRIMARY KEY,
 		reaches TEXT,
 		control_branch INTEGER
+	);
+	DROP TABLE IF EXISTS observation_points;
+	CREATE TABLE observation_points (
+		id INTEGER PRIMARY KEY
 	);`
 	if _, err := outputDB.Exec(createTableSQL); err != nil {
 		return fmt.Errorf("error creating branches table: %v", err)
@@ -234,8 +301,9 @@ func Run(args []string) error {
 	var wgTraverse, wgInsert sync.WaitGroup
 	var dbMutex sync.RWMutex
 
-	wgInsert.Add(1)
-	go handleBatchInserts(outputDB, 100, &wgInsert, &dbMutex) // Handling batch inserts with a batch size of 100
+	wgInsert.Add(2)
+	go handleBranchesInsert(outputDB, 100, &wgInsert, &dbMutex) // Handling batch inserts with a batch size of 100
+	go handleOPInsert(outputDB, 100, &wgInsert, &dbMutex)       // Handling batch inserts with a batch size of 100
 
 	//initiate concurrency
 	for _, r := range outletReaches {
@@ -245,7 +313,8 @@ func Run(args []string) error {
 
 	wgTraverse.Wait()
 
-	close(insertRequests)
+	close(branchInserts)
+	close(observationPointInserts)
 	// Closing channel means no further values can be sent
 	// but the existing values can be received https://go.dev/play/p/LtYOuLoOoQK
 	wgInsert.Wait()
@@ -253,29 +322,29 @@ func Run(args []string) error {
 	return nil
 }
 
-func handleBatchInserts(outputDB *sql.DB, batchSize int, wg *sync.WaitGroup, dbMutex *sync.RWMutex) {
+func handleBranchesInsert(outputDB *sql.DB, batchSize int, wg *sync.WaitGroup, dbMutex *sync.RWMutex) {
 	defer wg.Done()
 
 	// Batching logic for inserts
-	var batch []insertRequest
+	var batch []branch
 
-	for req := range insertRequests { // for range loop knows when channel is closed and no further values can be sent
+	for req := range branchInserts { // for range loop knows when channel is closed and no further values can be sent
 		batch = append(batch, req)
 		if len(batch) >= batchSize {
 			dbMutex.Lock() // Lock for writing
-			executeBatch(outputDB, batch)
+			executeBranchesBatch(outputDB, batch)
 			dbMutex.Unlock() // Unlock after write
 			batch = nil      // Reset the batch
 		}
 	}
 	if len(batch) > 0 { // Handle any remaining requests
 		dbMutex.Lock() // Lock for writing
-		executeBatch(outputDB, batch)
+		executeBranchesBatch(outputDB, batch)
 		dbMutex.Unlock() // Unlock after write
 	}
 }
 
-func executeBatch(outputDB *sql.DB, batch []insertRequest) {
+func executeBranchesBatch(outputDB *sql.DB, batch []branch) {
 	// Batch execution logic
 	tx, err := outputDB.Begin()
 	if err != nil {
@@ -290,6 +359,65 @@ func executeBatch(outputDB *sql.DB, batch []insertRequest) {
 	for _, req := range batch {
 		valPlaceholder = append(valPlaceholder, "(?, ?, ?)")
 		params = append(params, req.id, req.reaches, req.controlBranch)
+	}
+
+	stmtText += strings.Join(valPlaceholder, ", ")
+
+	stmt, err := tx.Prepare(stmtText)
+	if err != nil {
+		fmt.Println("Error preparing batch insert statement:", err)
+		tx.Rollback()
+		return
+	}
+
+	_, err = stmt.Exec(params...)
+	if err != nil {
+		fmt.Printf("Error executing batch insert: %v\n", err)
+		stmt.Close()
+		tx.Rollback()
+		return
+	}
+	stmt.Close()
+	tx.Commit()
+}
+
+func handleOPInsert(outputDB *sql.DB, batchSize int, wg *sync.WaitGroup, dbMutex *sync.RWMutex) {
+	defer wg.Done()
+
+	// Batching logic for inserts
+	var batch []observationPoint
+
+	for req := range observationPointInserts { // for range loop knows when channel is closed and no further values can be sent
+		batch = append(batch, req)
+		if len(batch) >= batchSize {
+			dbMutex.Lock() // Lock for writing
+			executeOPBatch(outputDB, batch)
+			dbMutex.Unlock() // Unlock after write
+			batch = nil      // Reset the batch
+		}
+	}
+	if len(batch) > 0 { // Handle any remaining requests
+		dbMutex.Lock() // Lock for writing
+		executeOPBatch(outputDB, batch)
+		dbMutex.Unlock() // Unlock after write
+	}
+}
+
+func executeOPBatch(outputDB *sql.DB, batch []observationPoint) {
+	// Batch execution logic
+	tx, err := outputDB.Begin()
+	if err != nil {
+		fmt.Println("Error starting transaction:", err)
+		return
+	}
+
+	stmtText := "INSERT INTO observation_points (id) VALUES "
+	valPlaceholder := []string{}
+	var params []interface{}
+
+	for _, req := range batch {
+		valPlaceholder = append(valPlaceholder, "(?)")
+		params = append(params, req.id)
 	}
 
 	stmtText += strings.Join(valPlaceholder, ", ")
