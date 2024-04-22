@@ -60,5 +60,5 @@ func main() {
 	}
 
 	elapsed := time.Since(startTime)
-	log.Debugf("Execution compeleted in %v meiliseconds", elapsed.Milliseconds())
+	log.Debugf("Program execution compeleted in %v meiliseconds", elapsed.Milliseconds())
 }

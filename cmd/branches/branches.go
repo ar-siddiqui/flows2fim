@@ -4,11 +4,16 @@ import (
 	"database/sql"
 	"encoding/json"
 	"flag"
+	"flows2fim/pkg/utils"
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
+	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	_ "modernc.org/sqlite"
 )
@@ -31,17 +36,13 @@ type reach struct {
 }
 
 type branch struct {
-	id            int
-	reaches       string
-	controlBranch interface{}
+	id               int
+	reaches          string
+	observationNodes string
+	controlNode      interface{}
 }
 
-type observationPoint struct {
-	id int
-}
-
-var branchInserts = make(chan branch, 100)                     // Adjust buffer size as necessary
-var observationPointInserts = make(chan observationPoint, 100) // Adjust buffer size as necessary
+var branchInserts = make(chan branch, 100) // Adjust buffer size as necessary
 
 func isSignificantChange(flow1, flow2, threshold float64) bool {
 	return abs(flow2-flow1)/flow1 > threshold
@@ -89,7 +90,7 @@ func fetchUpstreamReaches(db *sql.DB, outReach int) ([]reach, error) {
 }
 
 func fetchDownStreamMostReaches(db *sql.DB) ([]reach, error) {
-	rows, err := db.Query("SELECT id, stream_order, length, flow FROM reaches WHERE out_id is null")
+	rows, err := db.Query("SELECT id, stream_order, length, flow FROM reaches WHERE out_id is null OR out_id = 0;")
 	if err != nil {
 		// Check if the error is because of no rows
 		if err == sql.ErrNoRows {
@@ -118,8 +119,9 @@ func fetchDownStreamMostReaches(db *sql.DB) ([]reach, error) {
 
 func processReach(db *sql.DB, current reach, wg *sync.WaitGroup, dbMutex *sync.RWMutex, maxLength, flowDeltaThrsh float64) {
 	defer wg.Done()
-	grouped := []int{current.id}
-	controlBranch := current.outId
+	groupedReaches := []int{current.id}
+	controlNodes := []int{}
+	controlNode := current.outId
 	currentLength := current.length
 	currentFlow := current.flow
 
@@ -133,19 +135,32 @@ func processReach(db *sql.DB, current reach, wg *sync.WaitGroup, dbMutex *sync.R
 		}
 
 		if len(upstreamReaches) == 0 || (len(upstreamReaches) == 1 && (upstreamReaches[0].length > maxLength || isSignificantChange(currentFlow, upstreamReaches[0].flow, flowDeltaThrsh))) {
-			reverseSlice(grouped)
-			reachesJSON, _ := json.Marshal(grouped)
+			controlNodes := append(controlNodes, current.id)
+			reverseSlice(controlNodes)
+			obsNodeJSON, err := json.Marshal(controlNodes)
+			if err != nil {
+				log.Error("Could not marshalized control nodes for branch", current.id)
+			}
+			obsNodeStr := string(obsNodeJSON)
+
+			reverseSlice(groupedReaches)
+			reachesJSON, err := json.Marshal(groupedReaches)
+			if err != nil {
+				log.Error("Could not marshalized control nodes for branch", current.id)
+			}
 			reachesStr := string(reachesJSON)
-			var controlBranchValue interface{} = controlBranch
-			if controlBranch == 0 {
-				controlBranchValue = nil
+
+			var controlNodeValue interface{} = controlNode
+			if controlNode == 0 {
+				controlNodeValue = nil
 			}
 
 			// Send insert request to the channel instead of executing it
 			branchInserts <- branch{
-				id:            current.id,
-				reaches:       reachesStr,
-				controlBranch: controlBranchValue,
+				id:               current.id,
+				reaches:          reachesStr,
+				observationNodes: obsNodeStr,
+				controlNode:      controlNodeValue,
 			}
 			for _, upReach := range upstreamReaches {
 				wg.Add(1)
@@ -154,40 +169,43 @@ func processReach(db *sql.DB, current reach, wg *sync.WaitGroup, dbMutex *sync.R
 			break
 		} else if len(upstreamReaches) == 1 {
 			current = upstreamReaches[0]
-			grouped = append(grouped, current.id)
+			groupedReaches = append(groupedReaches, current.id)
 			currentLength += current.length
 			currentFlow = current.flow
 		} else {
-			countFlowMatch := 0
-			countStreamOrderMatch := 0
-			flowMatchReach := reach{}
-			streamOrderMatchReach := reach{}
+			countMatchReaches := 0
+			matchReach := reach{}
 
 			for _, r := range upstreamReaches {
-				if !isSignificantChange(currentFlow, r.flow, flowDeltaThrsh) {
-					countFlowMatch += 1
-					flowMatchReach = r
-				}
-				if r.streamOrder == current.streamOrder {
-					countStreamOrderMatch += 1
-					streamOrderMatchReach = r
+				if !isSignificantChange(currentFlow, r.flow, flowDeltaThrsh) && r.streamOrder == current.streamOrder {
+					countMatchReaches += 1
+					matchReach = r
 				}
 			}
 
-			if countFlowMatch != 1 || countStreamOrderMatch != 1 || flowMatchReach != streamOrderMatchReach {
-				reverseSlice(grouped)
-				reachesJSON, _ := json.Marshal(grouped)
+			if countMatchReaches != 1 {
+				controlNodes := append(controlNodes, current.id)
+				reverseSlice(controlNodes)
+				obsNodeJSON, err := json.Marshal(controlNodes)
+				if err != nil {
+					log.Error("Could not marshalized control nodes for branch", current.id)
+				}
+				obsNodeStr := string(obsNodeJSON)
+
+				reverseSlice(groupedReaches)
+				reachesJSON, _ := json.Marshal(groupedReaches)
 				reachesStr := string(reachesJSON)
-				var controlBranchValue interface{} = controlBranch
-				if controlBranch == 0 {
-					controlBranchValue = nil
+				var controlNodeValue interface{} = controlNode
+				if controlNode == 0 {
+					controlNodeValue = nil
 				}
 
 				// Send insert request to the channel instead of executing it
 				branchInserts <- branch{
-					id:            current.id,
-					reaches:       reachesStr,
-					controlBranch: controlBranchValue,
+					id:               current.id,
+					reaches:          reachesStr,
+					observationNodes: obsNodeStr,
+					controlNode:      controlNodeValue,
 				}
 				for _, upReach := range upstreamReaches {
 					wg.Add(1)
@@ -196,21 +214,17 @@ func processReach(db *sql.DB, current reach, wg *sync.WaitGroup, dbMutex *sync.R
 				break
 			} else {
 				for _, upReach := range upstreamReaches {
-					if upReach == flowMatchReach {
+					if upReach == matchReach {
 						continue
 					}
 					wg.Add(1)
 					go processReach(db, upReach, wg, dbMutex, maxLength, flowDeltaThrsh)
 				}
 
-				// Send insert request to the channel instead of executing it
-				fmt.Println(countFlowMatch, countStreamOrderMatch, flowMatchReach, streamOrderMatchReach, current, upstreamReaches)
-				observationPointInserts <- observationPoint{
-					id: current.id,
-				}
+				controlNodes = append(controlNodes, current.id)
 
-				current = flowMatchReach
-				grouped = append(grouped, current.id)
+				current = matchReach
+				groupedReaches = append(groupedReaches, current.id)
 				currentLength += current.length
 				currentFlow = current.flow
 
@@ -233,6 +247,65 @@ func ConnectDB(dbPath string) (*sql.DB, error) {
 	return db, nil
 }
 
+func handleBranchesInsert(db *sql.DB, tableName string, batchSize int, wg *sync.WaitGroup, dbMutex *sync.RWMutex) {
+	defer wg.Done()
+
+	// Batching logic for inserts
+	var batch []branch
+
+	for req := range branchInserts { // for range loop knows when channel is closed and no further values can be sent
+		batch = append(batch, req)
+		if len(batch) >= batchSize {
+			dbMutex.Lock() // Lock for writing
+			executeBranchesBatch(db, tableName, batch)
+			dbMutex.Unlock() // Unlock after write
+			batch = nil      // Reset the batch
+		}
+	}
+	if len(batch) > 0 { // Handle any remaining requests
+		dbMutex.Lock() // Lock for writing
+		executeBranchesBatch(db, tableName, batch)
+		dbMutex.Unlock() // Unlock after write
+	}
+}
+
+func executeBranchesBatch(db *sql.DB, tableName string, batch []branch) {
+	// Batch execution logic
+	tx, err := db.Begin()
+	if err != nil {
+		fmt.Println("Error starting transaction:", err)
+		return
+	}
+
+	stmtText := fmt.Sprintf("INSERT INTO %s (branch_id, reaches, obvservation_nodes, control_node) VALUES ", tableName)
+	valPlaceholder := []string{}
+	var params []interface{}
+
+	for _, req := range batch {
+		valPlaceholder = append(valPlaceholder, "(?, ?, ?, ?)")
+		params = append(params, req.id, req.reaches, req.observationNodes, req.controlNode)
+	}
+
+	stmtText += strings.Join(valPlaceholder, ", ")
+
+	stmt, err := tx.Prepare(stmtText)
+	if err != nil {
+		fmt.Println("Error preparing batch insert statement:", err)
+		tx.Rollback()
+		return
+	}
+
+	_, err = stmt.Exec(params...)
+	if err != nil {
+		fmt.Printf("Error executing batch insert: %v\n", err)
+		stmt.Close()
+		tx.Rollback()
+		return
+	}
+	stmt.Close()
+	tx.Commit()
+}
+
 func Run(args []string) error {
 	// Create a new flag set
 	flags := flag.NewFlagSet("branches", flag.ExitOnError)
@@ -248,7 +321,7 @@ func Run(args []string) error {
 	flags.StringVar(&dbPath, "db", "", "Path to the SQLite database file with reaches table")
 	flags.Float64Var(&maxLength, "ml", math.Inf(1), "Maximum length for a branch")
 	flags.Float64Var(&flowDeltaThrsh, "df", 0.2, "Delta flow threshold")
-	flags.StringVar(&outputDBPath, "o", "", "Path to the output SQLite database file")
+	flags.StringVar(&outputDBPath, "o", "branches.gpkg", "Path to the output SQLite database file")
 
 	// Parse flags from the arguments
 	if err := flags.Parse(args); err != nil {
@@ -256,9 +329,15 @@ func Run(args []string) error {
 	}
 
 	// Validate required flags
-	if dbPath == "" || outputDBPath == "" {
+	if dbPath == "" {
 		flags.PrintDefaults()
 		return fmt.Errorf("missing required flags")
+	}
+
+	// Check if gdalbuildvrt is available
+	if !utils.CheckGDALAvailable() {
+		log.Errorf("error: ogr2ogr is not available. Please install GDAL and ensure ogr2ogr is in your PATH")
+		return nil
 	}
 
 	// Database connection
@@ -268,28 +347,20 @@ func Run(args []string) error {
 	}
 	defer db.Close()
 
-	// Database connection for output
-	outputDB, err := sql.Open("sqlite", outputDBPath)
-	if err != nil {
-		return fmt.Errorf("error connecting to output database: %v", err)
-	}
-	defer outputDB.Close()
-	outputDB.SetMaxOpenConns(1) // SQLITE at the database level allow only one write connection at a time.
-	// This could be bottleneck
+	tempTable := fmt.Sprintf("temp_%d", time.Now().Unix())
 
-	// Setup the table in the database to store results
-	createTableSQL := `DROP TABLE IF EXISTS branches;
-	CREATE TABLE branches (
+	// Create SQL string with table name
+	createTableSQL := fmt.Sprintf(`
+	DROP TABLE IF EXISTS %[1]s;
+	CREATE TABLE %[1]s (
 		branch_id INTEGER PRIMARY KEY,
 		reaches TEXT,
-		control_branch INTEGER
-	);
-	DROP TABLE IF EXISTS observation_points;
-	CREATE TABLE observation_points (
-		id INTEGER PRIMARY KEY
-	);`
-	if _, err := outputDB.Exec(createTableSQL); err != nil {
-		return fmt.Errorf("error creating branches table: %v", err)
+		obvservation_nodes TEXT,
+		control_node INTEGER
+	);`, tempTable)
+
+	if _, err := db.Exec(createTableSQL); err != nil {
+		return fmt.Errorf("error creating temp table: %v", err)
 	}
 
 	// Fetch the most downstream reaches
@@ -301,10 +372,10 @@ func Run(args []string) error {
 	var wgTraverse, wgInsert sync.WaitGroup
 	var dbMutex sync.RWMutex
 
-	wgInsert.Add(2)
-	go handleBranchesInsert(outputDB, 100, &wgInsert, &dbMutex) // Handling batch inserts with a batch size of 100
-	go handleOPInsert(outputDB, 100, &wgInsert, &dbMutex)       // Handling batch inserts with a batch size of 100
+	wgInsert.Add(1)
+	go handleBranchesInsert(db, tempTable, 100, &wgInsert, &dbMutex) // Handling batch inserts with a batch size of 100
 
+	startTime := time.Now() // Start timing the execution
 	//initiate concurrency
 	for _, r := range outletReaches {
 		wgTraverse.Add(1)
@@ -312,130 +383,53 @@ func Run(args []string) error {
 	}
 
 	wgTraverse.Wait()
+	elapsed := time.Since(startTime)
+	log.Debugf("Network traversed in %v meiliseconds", elapsed.Milliseconds())
 
 	close(branchInserts)
-	close(observationPointInserts)
 	// Closing channel means no further values can be sent
 	// but the existing values can be received https://go.dev/play/p/LtYOuLoOoQK
 	wgInsert.Wait()
 
+	ogrBranchesSQL := fmt.Sprintf(`SELECT t.branch_id, t.control_node, t.reaches, t.obvservation_nodes, ST_LineMerge(ST_Union(reaches.geom)) AS geom
+	FROM %s AS t
+	LEFT JOIN reaches
+	ON reaches.id IN (SELECT value FROM json_each(t.reaches))
+	GROUP BY t.branch_id`, tempTable)
+	ogrArgs := []string{"-f", "GPKG", outputDBPath, dbPath, "-dialect", "sqlite", "-sql", ogrBranchesSQL, "-nln", "branches"}
+
+	cmd := exec.Command("ogr2ogr", ogrArgs...)
+	// Redirecting the output to the standard output of the Go program
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Errorf("error running ogr2ogr: %v", err)
+	}
+
+	elapsed = time.Since(startTime) - elapsed
+	log.Debugf("branches table created in %v meiliseconds", elapsed.Milliseconds())
+
+	// first branch_id is being used as FID, then we are overwriting FID through lco, hence that is getting ommitted
+	ogrNodesSQL := fmt.Sprintf(`SELECT r.id, t.branch_id, t.branch_id, ST_StartPoint(r.geom) AS geom
+		FROM reaches AS r
+		JOIN %s AS t
+		ON r.id IN (SELECT value FROM json_each(t.obvservation_nodes))`, tempTable)
+	ogrArgs = []string{"-f", "GPKG", outputDBPath, dbPath, "-dialect", "sqlite", "-sql", ogrNodesSQL, "-nln", "nodes", "-update", "-lco", "FID=id"}
+
+	cmd = exec.Command("ogr2ogr", ogrArgs...)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Errorf("error running ogr2ogr: %v", err)
+	}
+
+	elapsed = time.Since(startTime) - elapsed
+	log.Debugf("nodes table created in %v meiliseconds", elapsed.Milliseconds())
+
+	if _, err := db.Exec(fmt.Sprintf("DROP TABLE %s", tempTable)); err != nil {
+		return fmt.Errorf("error creating temp table: %v", err)
+	}
+
 	return nil
-}
-
-func handleBranchesInsert(outputDB *sql.DB, batchSize int, wg *sync.WaitGroup, dbMutex *sync.RWMutex) {
-	defer wg.Done()
-
-	// Batching logic for inserts
-	var batch []branch
-
-	for req := range branchInserts { // for range loop knows when channel is closed and no further values can be sent
-		batch = append(batch, req)
-		if len(batch) >= batchSize {
-			dbMutex.Lock() // Lock for writing
-			executeBranchesBatch(outputDB, batch)
-			dbMutex.Unlock() // Unlock after write
-			batch = nil      // Reset the batch
-		}
-	}
-	if len(batch) > 0 { // Handle any remaining requests
-		dbMutex.Lock() // Lock for writing
-		executeBranchesBatch(outputDB, batch)
-		dbMutex.Unlock() // Unlock after write
-	}
-}
-
-func executeBranchesBatch(outputDB *sql.DB, batch []branch) {
-	// Batch execution logic
-	tx, err := outputDB.Begin()
-	if err != nil {
-		fmt.Println("Error starting transaction:", err)
-		return
-	}
-
-	stmtText := "INSERT INTO branches (branch_id, reaches, control_branch) VALUES "
-	valPlaceholder := []string{}
-	var params []interface{}
-
-	for _, req := range batch {
-		valPlaceholder = append(valPlaceholder, "(?, ?, ?)")
-		params = append(params, req.id, req.reaches, req.controlBranch)
-	}
-
-	stmtText += strings.Join(valPlaceholder, ", ")
-
-	stmt, err := tx.Prepare(stmtText)
-	if err != nil {
-		fmt.Println("Error preparing batch insert statement:", err)
-		tx.Rollback()
-		return
-	}
-
-	_, err = stmt.Exec(params...)
-	if err != nil {
-		fmt.Printf("Error executing batch insert: %v\n", err)
-		stmt.Close()
-		tx.Rollback()
-		return
-	}
-	stmt.Close()
-	tx.Commit()
-}
-
-func handleOPInsert(outputDB *sql.DB, batchSize int, wg *sync.WaitGroup, dbMutex *sync.RWMutex) {
-	defer wg.Done()
-
-	// Batching logic for inserts
-	var batch []observationPoint
-
-	for req := range observationPointInserts { // for range loop knows when channel is closed and no further values can be sent
-		batch = append(batch, req)
-		if len(batch) >= batchSize {
-			dbMutex.Lock() // Lock for writing
-			executeOPBatch(outputDB, batch)
-			dbMutex.Unlock() // Unlock after write
-			batch = nil      // Reset the batch
-		}
-	}
-	if len(batch) > 0 { // Handle any remaining requests
-		dbMutex.Lock() // Lock for writing
-		executeOPBatch(outputDB, batch)
-		dbMutex.Unlock() // Unlock after write
-	}
-}
-
-func executeOPBatch(outputDB *sql.DB, batch []observationPoint) {
-	// Batch execution logic
-	tx, err := outputDB.Begin()
-	if err != nil {
-		fmt.Println("Error starting transaction:", err)
-		return
-	}
-
-	stmtText := "INSERT INTO observation_points (id) VALUES "
-	valPlaceholder := []string{}
-	var params []interface{}
-
-	for _, req := range batch {
-		valPlaceholder = append(valPlaceholder, "(?)")
-		params = append(params, req.id)
-	}
-
-	stmtText += strings.Join(valPlaceholder, ", ")
-
-	stmt, err := tx.Prepare(stmtText)
-	if err != nil {
-		fmt.Println("Error preparing batch insert statement:", err)
-		tx.Rollback()
-		return
-	}
-
-	_, err = stmt.Exec(params...)
-	if err != nil {
-		fmt.Printf("Error executing batch insert: %v\n", err)
-		stmt.Close()
-		tx.Rollback()
-		return
-	}
-	stmt.Close()
-	tx.Commit()
 }
