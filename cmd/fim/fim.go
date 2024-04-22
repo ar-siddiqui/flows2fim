@@ -3,6 +3,7 @@ package fim
 import (
 	"encoding/csv"
 	"flag"
+	"flows2fim/pkg/utils"
 	"fmt"
 	"os"
 	"os/exec"
@@ -21,15 +22,6 @@ CLI flag syntax. The following forms are permitted:
 -flag=x
 -flag x  // non-boolean flags only
 Arguments:`
-
-// CheckGDALBuildVRTAvailable checks if gdalbuildvrt is available in the environment.
-func CheckGDALBuildVRTAvailable() bool {
-	cmd := exec.Command("gdalbuildvrt", "--version")
-	if err := cmd.Run(); err != nil {
-		return false
-	}
-	return true
-}
 
 func Run(args []string) (gdalArgs []string, err error) {
 	// Create a new flag set
@@ -63,7 +55,7 @@ func Run(args []string) (gdalArgs []string, err error) {
 	}
 
 	// Check if gdalbuildvrt is available
-	if !CheckGDALBuildVRTAvailable() {
+	if !utils.CheckGDALAvailable() {
 		return []string{}, fmt.Errorf("error: gdalbuildvrt is not available. Please install GDAL and ensure gdalbuildvrt is in your PATH")
 	}
 
