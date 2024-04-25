@@ -4,6 +4,7 @@ go 1.22.1
 
 require (
 	github.com/sirupsen/logrus v1.9.3
+	golang.org/x/sync v0.7.0
 	modernc.org/sqlite v1.29.5
 )
 
