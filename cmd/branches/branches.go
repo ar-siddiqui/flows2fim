@@ -1,6 +1,7 @@
 package branches
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"flag"
@@ -9,9 +10,12 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/semaphore"
 
 	log "github.com/sirupsen/logrus"
 
@@ -117,8 +121,11 @@ func fetchDownStreamMostReaches(db *sql.DB) ([]reach, error) {
 	return downStreamMostReaches, nil
 }
 
-func processReach(db *sql.DB, current reach, wg *sync.WaitGroup, dbMutex *sync.RWMutex, maxLength, flowDeltaThrsh float64) {
+func processReach(db *sql.DB, current reach, wg *sync.WaitGroup, sem *semaphore.Weighted, dbMutex *sync.RWMutex, maxLength, flowDeltaThrsh float64) {
+	sem.Acquire(context.Background(), 1)
+	defer sem.Release(1)
 	defer wg.Done()
+
 	groupedReaches := []int{current.id}
 	controlNodes := []int{}
 	controlNode := current.outId
@@ -130,7 +137,7 @@ func processReach(db *sql.DB, current reach, wg *sync.WaitGroup, dbMutex *sync.R
 		upstreamReaches, err := fetchUpstreamReaches(db, current.id)
 		dbMutex.RUnlock()
 		if err != nil {
-			fmt.Printf("error fetching upstream reaches for %d: %v\n", current.id, err)
+			log.Debugf("error fetching upstream reaches for %d: %v\n", current.id, err)
 			return
 		}
 
@@ -164,7 +171,7 @@ func processReach(db *sql.DB, current reach, wg *sync.WaitGroup, dbMutex *sync.R
 			}
 			for _, upReach := range upstreamReaches {
 				wg.Add(1)
-				go processReach(db, upReach, wg, dbMutex, maxLength, flowDeltaThrsh)
+				go processReach(db, upReach, wg, sem, dbMutex, maxLength, flowDeltaThrsh)
 			}
 			break
 		} else if len(upstreamReaches) == 1 {
@@ -209,7 +216,7 @@ func processReach(db *sql.DB, current reach, wg *sync.WaitGroup, dbMutex *sync.R
 				}
 				for _, upReach := range upstreamReaches {
 					wg.Add(1)
-					go processReach(db, upReach, wg, dbMutex, maxLength, flowDeltaThrsh)
+					go processReach(db, upReach, wg, sem, dbMutex, maxLength, flowDeltaThrsh)
 				}
 				break
 			} else {
@@ -218,7 +225,7 @@ func processReach(db *sql.DB, current reach, wg *sync.WaitGroup, dbMutex *sync.R
 						continue
 					}
 					wg.Add(1)
-					go processReach(db, upReach, wg, dbMutex, maxLength, flowDeltaThrsh)
+					go processReach(db, upReach, wg, sem, dbMutex, maxLength, flowDeltaThrsh)
 				}
 
 				controlNodes = append(controlNodes, current.id)
@@ -297,7 +304,7 @@ func executeBranchesBatch(db *sql.DB, tableName string, batch []branch) {
 
 	_, err = stmt.Exec(params...)
 	if err != nil {
-		fmt.Printf("Error executing batch insert: %v\n", err)
+		log.Debugf("Error executing batch insert: %v\n", err)
 		stmt.Close()
 		tx.Rollback()
 		return
@@ -316,12 +323,14 @@ func Run(args []string) error {
 
 	var dbPath, outputDBPath string
 	var maxLength, flowDeltaThrsh float64
+	var poolSize int64
 
 	// Define flags
 	flags.StringVar(&dbPath, "db", "", "Path to the SQLite database file with reaches table")
 	flags.Float64Var(&maxLength, "ml", math.Inf(1), "Maximum length for a branch")
 	flags.Float64Var(&flowDeltaThrsh, "df", 0.2, "Delta flow threshold")
 	flags.StringVar(&outputDBPath, "o", "branches.gpkg", "Path to the output SQLite database file")
+	flags.Int64Var(&poolSize, "ps", 1000, "Max number of concurrent workers")
 
 	// Parse flags from the arguments
 	if err := flags.Parse(args); err != nil {
@@ -377,10 +386,13 @@ func Run(args []string) error {
 
 	startTime := time.Now() // Start timing the execution
 	//initiate concurrency
+	fmt.Println("Initiating concurrencty")
+	sem := semaphore.NewWeighted(poolSize)
 	for _, r := range outletReaches {
 		wgTraverse.Add(1)
-		go processReach(db, r, &wgTraverse, &dbMutex, maxLength, flowDeltaThrsh)
+		go processReach(db, r, &wgTraverse, sem, &dbMutex, maxLength, flowDeltaThrsh)
 	}
+	fmt.Println("Waiting on traverse")
 
 	wgTraverse.Wait()
 	elapsed := time.Since(startTime)
@@ -428,7 +440,7 @@ func Run(args []string) error {
 	log.Debugf("nodes table created in %v meiliseconds", elapsed.Milliseconds())
 
 	if _, err := db.Exec(fmt.Sprintf("DROP TABLE %s", tempTable)); err != nil {
-		return fmt.Errorf("error creating temp table: %v", err)
+		return fmt.Errorf("error dropping temp table: %v", err)
 	}
 
 	return nil
