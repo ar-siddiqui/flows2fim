@@ -29,6 +29,7 @@ go.work
 *.vrt
 *.tif
 *.db
+*.gpkg
 
 # Test data
 !testdata/*
