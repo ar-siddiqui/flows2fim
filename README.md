@@ -25,7 +25,7 @@ Dependencies:
 
 2. Run `go run main.go branches -db=testdata/reach_network.gpkg`
 
-3. Run `go run main.go controls -db=testdata/reach_data.db -f testdata/flows_100yr.csv -c controls.csv -sid 8489318 -scs 0.0` This will create a controls.csv file
+3. Run `go run main.go controls -db=testdata/branches.gpkg -f testdata/flows_100yr.csv -c controls.csv -sid 1468450 -scs 0.0` This will create a controls.csv file
 
 4. Download fim-library from `s3://fimc-data/fim2d/prototype/2024_03_13/` to `testdata/library` folder. Run `go run main.go fim -c controls.csv -lib testdata/library -o output.vrt` This will create a VRT file. VRT can be tested by loading in QGIS.
 

@@ -10,7 +10,6 @@ import (
 	"math"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -40,10 +39,10 @@ type reach struct {
 }
 
 type branch struct {
-	id               int
-	reaches          string
-	observationNodes string
-	controlNode      interface{}
+	id            int
+	reaches       string
+	controlNodes  string
+	controlByNode interface{}
 }
 
 var branchInserts = make(chan branch, 100) // Adjust buffer size as necessary
@@ -128,7 +127,7 @@ func processReach(db *sql.DB, current reach, wg *sync.WaitGroup, sem *semaphore.
 
 	groupedReaches := []int{current.id}
 	controlNodes := []int{}
-	controlNode := current.outId
+	controlByNode := current.outId
 	currentLength := current.length
 	currentFlow := current.flow
 
@@ -144,11 +143,11 @@ func processReach(db *sql.DB, current reach, wg *sync.WaitGroup, sem *semaphore.
 		if len(upstreamReaches) == 0 || (len(upstreamReaches) == 1 && (upstreamReaches[0].length > maxLength || isSignificantChange(currentFlow, upstreamReaches[0].flow, flowDeltaThrsh))) {
 			controlNodes := append(controlNodes, current.id)
 			reverseSlice(controlNodes)
-			obsNodeJSON, err := json.Marshal(controlNodes)
+			ctrlNodeJSON, err := json.Marshal(controlNodes)
 			if err != nil {
 				log.Error("Could not marshalized control nodes for branch", current.id)
 			}
-			obsNodeStr := string(obsNodeJSON)
+			ctrlNodeStr := string(ctrlNodeJSON)
 
 			reverseSlice(groupedReaches)
 			reachesJSON, err := json.Marshal(groupedReaches)
@@ -157,17 +156,17 @@ func processReach(db *sql.DB, current reach, wg *sync.WaitGroup, sem *semaphore.
 			}
 			reachesStr := string(reachesJSON)
 
-			var controlNodeValue interface{} = controlNode
-			if controlNode == 0 {
-				controlNodeValue = nil
+			var controlByNodeValue interface{} = controlByNode
+			if controlByNode == 0 {
+				controlByNodeValue = nil
 			}
 
 			// Send insert request to the channel instead of executing it
 			branchInserts <- branch{
-				id:               current.id,
-				reaches:          reachesStr,
-				observationNodes: obsNodeStr,
-				controlNode:      controlNodeValue,
+				id:            current.id,
+				reaches:       reachesStr,
+				controlNodes:  ctrlNodeStr,
+				controlByNode: controlByNodeValue,
 			}
 			for _, upReach := range upstreamReaches {
 				wg.Add(1)
@@ -193,26 +192,26 @@ func processReach(db *sql.DB, current reach, wg *sync.WaitGroup, sem *semaphore.
 			if countMatchReaches != 1 {
 				controlNodes := append(controlNodes, current.id)
 				reverseSlice(controlNodes)
-				obsNodeJSON, err := json.Marshal(controlNodes)
+				ctrlNodeJSON, err := json.Marshal(controlNodes)
 				if err != nil {
 					log.Error("Could not marshalized control nodes for branch", current.id)
 				}
-				obsNodeStr := string(obsNodeJSON)
+				ctrlNodeStr := string(ctrlNodeJSON)
 
 				reverseSlice(groupedReaches)
 				reachesJSON, _ := json.Marshal(groupedReaches)
 				reachesStr := string(reachesJSON)
-				var controlNodeValue interface{} = controlNode
-				if controlNode == 0 {
-					controlNodeValue = nil
+				var controlByNodeValue interface{} = controlByNode
+				if controlByNode == 0 {
+					controlByNodeValue = nil
 				}
 
 				// Send insert request to the channel instead of executing it
 				branchInserts <- branch{
-					id:               current.id,
-					reaches:          reachesStr,
-					observationNodes: obsNodeStr,
-					controlNode:      controlNodeValue,
+					id:            current.id,
+					reaches:       reachesStr,
+					controlNodes:  ctrlNodeStr,
+					controlByNode: controlByNodeValue,
 				}
 				for _, upReach := range upstreamReaches {
 					wg.Add(1)
@@ -284,13 +283,13 @@ func executeBranchesBatch(db *sql.DB, tableName string, batch []branch) {
 		return
 	}
 
-	stmtText := fmt.Sprintf("INSERT INTO %s (branch_id, reaches, obvservation_nodes, control_node) VALUES ", tableName)
+	stmtText := fmt.Sprintf("INSERT INTO %s (branch_id, reaches, control_nodes, control_by_node) VALUES ", tableName)
 	valPlaceholder := []string{}
 	var params []interface{}
 
 	for _, req := range batch {
 		valPlaceholder = append(valPlaceholder, "(?, ?, ?, ?)")
-		params = append(params, req.id, req.reaches, req.observationNodes, req.controlNode)
+		params = append(params, req.id, req.reaches, req.controlNodes, req.controlByNode)
 	}
 
 	stmtText += strings.Join(valPlaceholder, ", ")
@@ -364,8 +363,8 @@ func Run(args []string) error {
 	CREATE TABLE %[1]s (
 		branch_id INTEGER PRIMARY KEY,
 		reaches TEXT,
-		obvservation_nodes TEXT,
-		control_node INTEGER
+		control_nodes TEXT,
+		control_by_node INTEGER
 	);`, tempTable)
 
 	if _, err := db.Exec(createTableSQL); err != nil {
@@ -403,7 +402,7 @@ func Run(args []string) error {
 	// but the existing values can be received https://go.dev/play/p/LtYOuLoOoQK
 	wgInsert.Wait()
 
-	ogrBranchesSQL := fmt.Sprintf(`SELECT t.branch_id, t.control_node, t.reaches, t.obvservation_nodes, ST_LineMerge(ST_Union(reaches.geom)) AS geom
+	ogrBranchesSQL := fmt.Sprintf(`SELECT t.branch_id, t.control_by_node, t.reaches, t.control_nodes, ST_LineMerge(ST_Union(reaches.geom)) AS geom
 	FROM %s AS t
 	LEFT JOIN reaches
 	ON reaches.id IN (SELECT value FROM json_each(t.reaches))
@@ -425,7 +424,7 @@ func Run(args []string) error {
 	ogrNodesSQL := fmt.Sprintf(`SELECT r.id, t.branch_id, t.branch_id, ST_StartPoint(r.geom) AS geom
 		FROM reaches AS r
 		JOIN %s AS t
-		ON r.id IN (SELECT value FROM json_each(t.obvservation_nodes))`, tempTable)
+		ON r.id IN (SELECT value FROM json_each(t.control_nodes))`, tempTable)
 	ogrArgs = []string{"-f", "GPKG", outputDBPath, dbPath, "-dialect", "sqlite", "-sql", ogrNodesSQL, "-nln", "nodes", "-update", "-lco", "FID=id"}
 
 	cmd = exec.Command("ogr2ogr", ogrArgs...)

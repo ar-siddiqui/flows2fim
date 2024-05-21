@@ -30,6 +30,7 @@ go.work
 *.tif
 *.db
 *.gpkg
+*.tif.aux.xml
 
 # Test data
 !testdata/*
