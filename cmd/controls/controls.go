@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"database/sql"
 	"encoding/csv"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -29,21 +30,16 @@ type FlowData struct {
 	Flow    float32
 }
 
-type ControlData struct {
-	ReachID           int
-	ControlReachStage float32
+type ReachData struct {
+	ReachID            int
+	ControlNodes       []int
+	ControlByNodeStage float32
 }
 
-type RatingCurveRecord struct {
-	ReachID           int
-	Flow              float32
-	Stage             float32
-	ControlReachStage float32
-}
-type ResultRecord struct {
-	ReachID           int
-	Flow              float32
-	ControlReachStage float32
+type ControlRecord struct {
+	NodeID           int
+	Flow             float32
+	ControlNodeStage float32
 }
 
 func ReadFlows(filePath string) (map[int]float32, error) {
@@ -88,24 +84,47 @@ func ConnectDB(dbPath string) (*sql.DB, error) {
 	return db, nil
 }
 
-func FetchUpstreamReaches(db *sql.DB, controlReachID int) ([]int, error) {
-	rows, err := db.Query("SELECT reach_id FROM reach_controls WHERE control_reach_id = ?", controlReachID)
+func FetchUpstreamReaches(db *sql.DB, controlNodeIDs []int, controlData ControlRecord) ([]ReachData, error) {
+	// Prepare the query with the appropriate number of placeholders for controlNodeIDs
+	query := fmt.Sprintf(`
+	SELECT branch_id, control_nodes, r.stage FROM branches b
+	LEFT JOIN rating_curves r ON b.control_by_node = r.node_id
+	WHERE b.control_by_node IN (%s)
+	AND r.control_by_node_stage = ? AND r.flow = ?;
+	`, strings.Repeat("?,", len(controlNodeIDs)-1)+"?")
+
+	// Convert controlNodeIDs slice to interface{} slice for variadic function argument
+	args := make([]interface{}, len(controlNodeIDs)+2)
+	for i, id := range controlNodeIDs {
+		args[i] = id
+	}
+	args[len(args)-2] = controlData.ControlNodeStage
+	args[len(args)-1] = controlData.Flow
+
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		// Check if the error is because of no rows
 		if err == sql.ErrNoRows {
 			// No rows found, not an error in this context
-			return []int{}, nil
+			return []ReachData{}, nil
 		}
 		return nil, err
 	}
 	defer rows.Close()
 
-	var upstreamReaches []int
+	var upstreamReaches []ReachData
 	for rows.Next() {
-		var r int
-		if err := rows.Scan(&r); err != nil {
+		var r ReachData
+		var ctrlNodesStr string
+		if err := rows.Scan(&r.ReachID, &ctrlNodesStr, &r.ControlByNodeStage); err != nil {
 			return nil, err
 		}
+
+		// Unmarshal the JSON-like list of integers into a slice of integers
+		if err := json.Unmarshal([]byte(ctrlNodesStr), &r.ControlNodes); err != nil {
+			return nil, err
+		}
+
 		upstreamReaches = append(upstreamReaches, r)
 	}
 
@@ -116,60 +135,64 @@ func FetchUpstreamReaches(db *sql.DB, controlReachID int) ([]int, error) {
 	return upstreamReaches, nil
 }
 
-func FetchNearestFlowStage(db *sql.DB, reachID int, flow, controlStage float32) (RatingCurveRecord, error) {
-	row := db.QueryRow("SELECT flow, stage, control_reach_stage FROM rating_curves WHERE reach_id = ? ORDER BY ABS(control_reach_stage - ?), ABS(flow - ? ) LIMIT 1", reachID, controlStage, flow)
-	var rc RatingCurveRecord
-	if err := row.Scan(&rc.Flow, &rc.Stage, &rc.ControlReachStage); err != nil {
-		// Check if the error is because of no rows
+func FetchNearestFlowStage(db *sql.DB, reachID int, flow, controlStage float32) (ControlRecord, error) {
+	row := db.QueryRow("SELECT flow, control_by_node_stage FROM rating_curves WHERE node_id = ? ORDER BY ABS(control_by_node_stage - ?), ABS(flow - ? ) LIMIT 1", reachID, controlStage, flow)
+	var rc ControlRecord
+	if err := row.Scan(&rc.Flow, &rc.ControlNodeStage); err != nil {
 		if err == sql.ErrNoRows {
 			// No rows found, not an error in this context
-			return RatingCurveRecord{}, nil
+			return ControlRecord{}, nil
 		}
-		return RatingCurveRecord{}, err
+		return ControlRecord{}, err
 	}
-	rc.ReachID = reachID
+	rc.NodeID = reachID
 	return rc, nil
 }
 
-func TraverseUpstream(db *sql.DB, flows map[int]float32, startReachID int, controlStage float32) (results []ResultRecord, err error) {
-	queue := []ControlData{{ReachID: startReachID, ControlReachStage: controlStage}}
+func TraverseUpstream(db *sql.DB, flows map[int]float32, startReach ReachData) (results []ControlRecord, err error) {
+	queue := []ReachData{startReach}
 
 	for len(queue) > 0 {
 		current := queue[0]
-		queue = queue[1:]
+		queue = queue[1:] // there might be memory leak here because the underlying array is keeping data in memory
 
+		fmt.Println("Current:", current)
 		// Get the flow for the current reach from the flows map
 		flow, ok := flows[current.ReachID]
 		if !ok {
 			log.Warnf("Flow not found for reach %d", current.ReachID)
 			flow = 0
 		}
+		fmt.Println(flow)
 
-		rc, err := FetchNearestFlowStage(db, current.ReachID, flow, current.ControlReachStage)
+		rc, err := FetchNearestFlowStage(db, current.ReachID, flow, current.ControlByNodeStage)
 		if err != nil {
-			return []ResultRecord{}, fmt.Errorf("error fetching rating curve for reach %d: %v", current.ReachID, err)
+			return []ControlRecord{}, fmt.Errorf("error fetching rating curve for reach %d: %v", current.ReachID, err)
 		}
+		fmt.Println("RC", rc)
 
-		if rc.ReachID == 0 {
+		if rc.NodeID == 0 {
+			fmt.Println("---------------------")
 			continue
 		}
-		results = append(results, ResultRecord{rc.ReachID, rc.Flow, rc.ControlReachStage})
+		results = append(results, rc)
 
 		// Fetch upstream reaches
-		upstream, err := FetchUpstreamReaches(db, current.ReachID)
+		upstreams, err := FetchUpstreamReaches(db, current.ControlNodes, rc)
 		if err != nil {
-			return []ResultRecord{}, fmt.Errorf("error fetching upstream reaches for %d: %v", current.ReachID, err)
+			return []ControlRecord{}, fmt.Errorf("error fetching upstream reaches for %d: %v", current.ReachID, err)
 		}
+
+		fmt.Println("Upstreams:", upstreams)
 		// Add upstream reaches to queue
-		for _, u := range upstream {
-			queue = append(queue, ControlData{ReachID: u, ControlReachStage: rc.Stage})
-		}
+		queue = append(queue, upstreams...)
+		fmt.Println("---------------------")
 	}
 
 	return results, nil
 }
 
-func WriteCSV(data []ResultRecord, filePath string) error {
+func WriteCSV(data []ControlRecord, filePath string) error {
 	file, err := os.Create(filePath)
 	if err != nil {
 		return err
@@ -178,12 +201,12 @@ func WriteCSV(data []ResultRecord, filePath string) error {
 
 	writer := csv.NewWriter(file)
 	defer writer.Flush()
-	if err := writer.Write([]string{"reach_id", "flow", "control_stage"}); err != nil {
+	if err := writer.Write([]string{"branch_id", "flow", "control_stage"}); err != nil {
 		return err
 	}
 
 	for _, d := range data {
-		record := []string{strconv.Itoa(d.ReachID), fmt.Sprintf("%.1f", d.Flow), fmt.Sprintf("%.1f", d.ControlReachStage)}
+		record := []string{strconv.Itoa(d.NodeID), fmt.Sprintf("%.1f", d.Flow), fmt.Sprintf("%.1f", d.ControlNodeStage)}
 		if err := writer.Write(record); err != nil {
 			return err
 		}
@@ -248,7 +271,26 @@ func Run(args []string) (err error) {
 	}
 	defer db.Close()
 
-	results, err := TraverseUpstream(db, flows, startReachID, float32(startControlStage))
+	startReach := ReachData{ReachID: startReachID, ControlByNodeStage: float32(startControlStage)}
+
+	// Get Control nodes on the start reach
+	row := db.QueryRow("SELECT control_nodes FROM branches WHERE branch_id = ?", startReachID)
+	var ctrlNodesStr string
+	if err := row.Scan(&ctrlNodesStr); err != nil {
+		// Check if the error is because of no rows
+		if err == sql.ErrNoRows {
+			// No rows found, not an error in this context
+			return fmt.Errorf("no such branch exist: %v", startReachID)
+		}
+	}
+
+	// Unmarshal the JSON-like list of integers into a slice of integers
+	if err := json.Unmarshal([]byte(ctrlNodesStr), &startReach.ControlNodes); err != nil {
+		return fmt.Errorf("can not get control nodes: %v", startReachID)
+	}
+
+	fmt.Println(startReach)
+	results, err := TraverseUpstream(db, flows, startReach)
 	if err != nil {
 		return fmt.Errorf("error traversing upstream: %v", err)
 	}
