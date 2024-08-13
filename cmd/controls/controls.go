@@ -312,16 +312,11 @@ func Run(args []string) (err error) {
 		dbPath, flowsFilePath, outputFilePath, startReachesCSV, startReachIDsStr, startControlStagesStr string
 	)
 	flags.StringVar(&dbPath, "db", "", "Path to the database file")
-
 	flags.StringVar(&flowsFilePath, "f", "", "Path to the input flows CSV file")
-
-	flags.StringVar(&outputFilePath, "c", "", "Path to the output controls CSV file")
-
-	flags.StringVar(&startReachesCSV, "scsv", "", "Path to the CSV file containing starting reach IDs and control stages")
-
-	flags.StringVar(&startReachIDsStr, "sids", "", "Comma-separated list of starting reach IDs")
-
+	flags.StringVar(&startReachesCSV, "scsv", "", "Path to the CSV file containing starting reach IDs and control stages (Coloumn headers do not matter)")
+	flags.StringVar(&startReachIDsStr, "sids", "", "Comma-separated list of starting reach IDs (One of -sids or -scsv is required, if both are provided, -sids and -scs flags are ignored)")
 	flags.StringVar(&startControlStagesStr, "scs", "nd", "Comma-separated list of starting control stages (corresponding to the reach IDs)")
+	flags.StringVar(&outputFilePath, "o", "", "Path to the output controls CSV file")
 
 	// Parse flags from the arguments
 	if err = flags.Parse(args); err != nil {
@@ -329,6 +324,7 @@ func Run(args []string) (err error) {
 	}
 
 	// Validate required flags
+	// Start reaches flags are validated later
 	if dbPath == "" || flowsFilePath == "" || outputFilePath == "" {
 		fmt.Println("Missing required flags")
 		flags.PrintDefaults()
@@ -348,7 +344,14 @@ func Run(args []string) (err error) {
 		startControlStages := strings.Split(startControlStagesStr, ",")
 
 		if len(startReachIDs) != len(startControlStages) {
-			return fmt.Errorf("the number of startReachIds must match the number of startControlStages")
+			if startControlStagesStr == "nd" {
+				startControlStages = make([]string, len(startReachIDs))
+				for i := range startReachIDs {
+					startControlStages[i] = "nd"
+				}
+			} else {
+				return fmt.Errorf("the number of startReachIds must match the number of startControlStages")
+			}
 		}
 
 		for i, sidStr := range startReachIDs {

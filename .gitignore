@@ -30,13 +30,11 @@ go.work
 *.vrt
 *.tif
 *.db
+*.sqlite
 *.xml
 
 # Data
 data/
 
-# Test data
-!testdata/*
-testdata/outputs/*
 
 
