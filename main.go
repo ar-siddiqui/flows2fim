@@ -12,10 +12,10 @@ import (
 var usage string = `Usage of flows2fim:
 	flows2fim COMMAND [Args]
 Commands:
- - controls: Given a flow file and a reach database. Create controls table of reach flows and downstream boundary conditions.
- - fim: Given a control table and a fim library folder. Create a flood inundation VRT for the control conditions.
+ - controls: Given a flow file and a rating curves database, create a control table of reach flows and downstream boundary conditions.
+ - fim: Given a control table and a fim library folder. Create a flood inundation map for the control conditions.
 Notes:
- - 'fim' command needs access to 'gdalbuildvrt' program. It must be installed separately and made available in Path.
+ - 'fim' command needs access to gdal programs. It must be installed separately and made available in Path.
 `
 
 func main() {
@@ -29,8 +29,6 @@ func main() {
 	}
 
 	var err error
-
-	// Run functions should perform all print statements except error
 
 	switch os.Args[1] {
 	case "-h", "--h", "-help", "--help":
