@@ -1,8 +1,15 @@
 FROM golang:1.22.1
 
 WORKDIR /app
-COPY . .
+COPY go.mod go.sum ./
 
-RUN go mod tidy
+# Download and cache dependencies (assumes go.mod and go.sum are tidy)
+RUN go mod download
 
-RUN apt-get update && apt-get install -y gdal-bin
+
+RUN apt-get update && \
+    apt-get install -y gdal-bin && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN git config --global --add safe.directory /app
