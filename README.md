@@ -56,9 +56,7 @@ Dependencies:
 
 ### Testing
 
-1. Provide access to S3 fimc-data bucket to GDAL.
-
-2. Run `go test ./...` to run automated tests.
+1. Run `go test ./...` to run automated tests.
 
 ### Building
 

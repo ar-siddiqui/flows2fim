@@ -14,7 +14,22 @@ import (
 var usage string = `Usage of fim:
 Given a control table and a fim library folder, create a flood inundation VRT or a merged TIFF for the control conditions.
 GDAL VSI paths can be used, given GDAL must have access to cloud creds.
-Does not support relative cloud paths.
+GDAL does not support relative cloud paths.
+
+FIM library folder must have this structure:
+.
+├── 2821866
+│   ├── z_nd
+│   │   ├── f_10283.tif
+│   │   ├── f_104569.tif
+│   │   ├── f_11199.tif
+│   │   ├── f_112807.tif
+│   ├── z_53_5
+│       ├── f_102921.tif
+│       ├── f_10485.tif
+│       ├── f_111159.tif
+│       ├── f_11309.tif
+
 CLI flag syntax. The following forms are permitted:
 -flag
 --flag   // double dashes are also permitted

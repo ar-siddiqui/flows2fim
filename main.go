@@ -27,39 +27,41 @@ var (
 	BuildDate = "unknown" // will be injected at build-time
 )
 
-func main() {
-
+// run handles the main logic and returns an error if something goes wrong.
+func run(args []string) (err error) {
 	config.LoadConfig()
 
-	if len(os.Args) < 2 {
+	if len(args) < 2 {
 		fmt.Println("Please provide a command")
 		fmt.Print(usage)
-		os.Exit(1)
+		err = fmt.Errorf("missing command")
+		return err
 	}
 
-	var err error
-
-	switch os.Args[1] {
+	switch args[1] {
 	case "-v", "--v", "-version", "--version":
 		fmt.Println("Software: flows2fim")
 		fmt.Println("Version:", GitTag)
 		fmt.Println("Commit:", GitCommit)
 		fmt.Println("Build Date:", BuildDate)
-		os.Exit(0)
 	case "-h", "--h", "-help", "--help":
 		fmt.Print(usage)
-		os.Exit(0)
 	case "controls":
-		err = controls.Run(os.Args[2:])
+		err = controls.Run(args[2:])
 	case "fim":
-		_, err = fim.Run(os.Args[2:])
+		_, err = fim.Run(args[2:])
 	default:
-		fmt.Println("Unknown command:", os.Args[1])
-		os.Exit(1)
+		fmt.Println("Unknown command:", args[1])
+		err = fmt.Errorf("unknown command")
 	}
 
-	if err != nil {
+	return err
+}
+
+func main() {
+	if err := run(os.Args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+	os.Exit(0)
 }

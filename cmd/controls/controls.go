@@ -18,7 +18,10 @@ import (
 
 var usage string = `Usage of controls:
 Given a flow file and a reach database. Create controls table of reach flows and downstream boundary conditions.
-Database file must have a table rating_curves and contain following coloumns
+
+Flow file's first coloumn values must be reach ids, and second coloumn must be discharges in cfs. Invalid lines are skipped.
+
+Database file must have a table 'rating_curves' and contain following coloumns
         reach_id INTEGER
         us_flow REAL
         us_depth REAL
@@ -27,6 +30,9 @@ Database file must have a table rating_curves and contain following coloumns
         ds_wse REAL
         boundary_condition TEXT CHECK(boundary_condition IN ('nd','kwse'))
         UNIQUE(reach_id, us_flow, ds_wse, boundary_condition)
+Database file must have a table 'conflation' and contain following coloumns
+        reach_id INTEGER
+        conflation_to_id INTEGER
 
 CLI flag syntax. The following forms are permitted:
 -flag
@@ -72,7 +78,7 @@ func ReadFlows(filePath string) (map[int]float32, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		parts := strings.Split(line, ",")
-		if len(parts) != 2 {
+		if len(parts) < 2 {
 			continue // Skip invalid lines
 		}
 		reachID, err := strconv.Atoi(parts[0])

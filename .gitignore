@@ -36,5 +36,8 @@ go.work
 # Data
 data/
 
+# Unit test data
+!testdata/unit_tests/flow_files/*.csv
+
 
 
