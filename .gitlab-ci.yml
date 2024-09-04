@@ -42,6 +42,6 @@ test:
   script:
         - echo "Run flows2fim unit tests"
         - echo "$CI_PROJECT_DIR"
-        - docker run -i --rm --workdir /app --name flows2fim_test -v "$CI_PROJECT_DIR:/app" $CONTAINER_TEST_IMAGE $GOTEST
+        - docker run -i --rm --workdir /app --name flows2fim_test -v "$CI_PROJECT_DIR/$CI_PROJECT_NAME:/app" $CONTAINER_TEST_IMAGE $GOTEST
   <<: *default_job_template
 
