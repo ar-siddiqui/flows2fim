@@ -20,7 +20,7 @@ stages:
   - test
 variables:
   CONTAINER_TEST_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
-  GOTEST: "go test /app/... -v"
+  GOTEST: "go test ./... -v"
 services:
      - docker:dind
 before_script:
