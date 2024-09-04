@@ -9,36 +9,41 @@
 # See https://docs.gitlab.com/ee/ci/yaml/index.html for all available options
 
 # you can delete this line if you're not using Docker
-image: busybox:latest
+workflow:
+  rules:
+    - if: '$CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+    - if: '$CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "development"'
+    - when: never
 
+stages:
+  - build
+  - test
+variables:
+  CONTAINER_TEST_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+  GOTEST: "go test ./... -v"
+services:
+     - docker:dind
 before_script:
-  - echo "Before script section"
-  - echo "For example you might run an update here or install a build dependency"
-  - echo "Or perhaps you might print out some debugging details"
+     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
 
-after_script:
-  - echo "After script section"
-  - echo "For example you might do some cleanup here"
+.default_job_template: &default_job_template
+     image: docker:latest
 
-build1:
+  
+build:
   stage: build
   script:
-    - echo "Do your build here"
+        - docker build --pull -t $CONTAINER_TEST_IMAGE .
+        - docker push $CONTAINER_TEST_IMAGE
+  <<: *default_job_template
 
-test1:
+test:
   stage: test
   script:
-    - echo "Do a test here"
-    - echo "For example run a test suite"
+        - echo "Run flows2fim unit tests"
+        - echo "$CI_PROJECT_DIR"
+  #     - docker run --rm -v $(pwd):/app $CONTAINER_TEST_IMAGE /bin/bash -c "cd /app && $GOTEST"
+        - docker run -i --rm --workdir /app --name flows2fim_test $CONTAINER_TEST_IMAGE $GOTEST
 
-test2:
-  stage: test
-  script:
-    - echo "Do another parallel test here"
-    - echo "For example run a lint test"
+  # <<: *default_job_template
 
-deploy1:
-  stage: deploy
-  script:
-    - echo "Do your deploy here"
-  environment: production

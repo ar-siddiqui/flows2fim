@@ -2,6 +2,7 @@ FROM golang:1.22.1
 
 WORKDIR /app
 COPY go.mod go.sum ./
+COPY . ./
 
 # Download and cache dependencies (assumes go.mod and go.sum are tidy)
 RUN go mod download
