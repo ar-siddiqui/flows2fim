@@ -34,7 +34,7 @@ build:
   stage: build
   script:
         - docker build --pull -t $CONTAINER_TEST_IMAGE .
-         - docker run -i --rm --workdir /app --name flows2fim_test -v $(pwd):/app $CONTAINER_TEST_IMAGE /bin/bash -c "cd /app &&  ./..."
+         - docker run --workdir /app --name flows2fim_test -v $(pwd):/app $CONTAINER_TEST_IMAGE /bin/bash -c "cd /app &&  ./..."
         - docker push $CONTAINER_TEST_IMAGE
   <<: *default_job_template
 
