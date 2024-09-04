@@ -32,22 +32,16 @@ before_script:
   
 build:
   stage: build
-  # image: docker:latest
   script:
         - docker build --pull -t $CONTAINER_TEST_IMAGE .
         - docker push $CONTAINER_TEST_IMAGE
   <<: *default_job_template
 
-  # only:
-  #       - merge_requests
-
 test:
   stage: test
-  # image: docker:latest
   script:
         - echo "Run flows2fim unit tests"
-        - echo "CI_PROJECT_DIR is: $CI_PROJECT_DIR"
+        - echo "$CI_PROJECT_DIR"
         - docker run -i --rm --workdir /app --name flows2fim_test -v "$CI_PROJECT_DIR:/app" $CONTAINER_TEST_IMAGE $GOTEST
   <<: *default_job_template
-  # only:
-  #       - merge_requests
+
