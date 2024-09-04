@@ -20,7 +20,7 @@ stages:
   - test
 variables:
   CONTAINER_TEST_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
-  GOTEST: "go test /app/... -v"
+  GOTEST: "go test ./... -v"
 services:
      - docker:dind
 before_script:
@@ -34,6 +34,7 @@ build:
   stage: build
   script:
         - docker build --pull -t $CONTAINER_TEST_IMAGE .
+         - docker run -i --rm --workdir /app --name flows2fim_test -v $(pwd):/app $CONTAINER_TEST_IMAGE /bin/bash -c "cd /app &&  ./..."
         - docker push $CONTAINER_TEST_IMAGE
   <<: *default_job_template
 
@@ -42,6 +43,6 @@ test:
   script:
         - echo "Run flows2fim unit tests"
         - echo "$CI_PROJECT_DIR"
-        - docker run -i --rm --workdir /app --name flows2fim_test -v "$CI_PROJECT_DIR/$CI_PROJECT_NAME:/app" $CONTAINER_TEST_IMAGE $GOTEST
+        - docker run -i --rm --workdir /app --name flows2fim_test -v $(pwd):/app $CONTAINER_TEST_IMAGE /bin/bash -c "cd /app && $GOTEST"
   <<: *default_job_template
 
