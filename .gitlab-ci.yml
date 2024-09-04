@@ -34,7 +34,6 @@ build:
   stage: build
   script:
         - docker build --pull -t $CONTAINER_TEST_IMAGE .
-        - docker run --rm -v $(pwd):/app $CONTAINER_TEST_IMAGE /bin/bash -c "cd /app && go build ./..."
         - docker push $CONTAINER_TEST_IMAGE
   <<: *default_job_template
 
@@ -43,8 +42,8 @@ test:
   script:
         - echo "Run flows2fim unit tests"
         - echo "$CI_PROJECT_DIR"
-        # - docker run -i --rm --workdir /app --name flows2fim_test -v $(pwd):/app $CONTAINER_TEST_IMAGE /bin/bash -c "cd /app && $GOTEST"
-        - docker run --rm -v $(pwd):/app $CONTAINER_TEST_IMAGE /bin/bash -c "cd /app && $GOTEST"
+  #     - docker run --rm -v $(pwd):/app $CONTAINER_TEST_IMAGE /bin/bash -c "cd /app && $GOTEST"
+        - docker run -i --rm --workdir /app --name flows2fim_test $CONTAINER_TEST_IMAGE $GOTEST
 
-  <<: *default_job_template
+  # <<: *default_job_template
 
