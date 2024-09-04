@@ -46,7 +46,7 @@ test:
   # image: docker:latest
   script:
         - echo "Run flows2fim unit tests"
-        - docker run -i --rm --workdir /app --name flows2fim_test $CONTAINER_TEST_IMAGE $GOTEST
+        - docker run -i --rm --workdir /app --name flows2fim_test -v "$CI_PROJECT_DIR:/app" $CONTAINER_TEST_IMAGE $GOTEST
   <<: *default_job_template
   # only:
   #       - merge_requests
