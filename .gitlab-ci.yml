@@ -24,7 +24,7 @@ variables:
 services:
      - docker:dind
 before_script:
-     - pwd
+   
      - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
 
 .default_job_template: &default_job_template
@@ -41,6 +41,11 @@ build:
 test:
   stage: test
   script:
+        - pwd
+        - ls
+        - cd ..
+        - pwd
+        - ls
         - echo "Run flows2fim unit tests"
         - echo "$CI_PROJECT_DIR"
   #     - docker run --rm -v $(pwd):/app $CONTAINER_TEST_IMAGE /bin/bash -c "cd /app && $GOTEST"
