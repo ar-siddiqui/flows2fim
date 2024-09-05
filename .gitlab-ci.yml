@@ -12,7 +12,6 @@
 workflow:
   rules:
     - if: '$CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
-    - if: '$CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "development"'
     - when: never
 
 stages:
@@ -43,14 +42,11 @@ test:
   script:
         - pwd
         - ls
-        - cd ..
-        - pwd
-        - ls
         - echo "Run flows2fim unit tests"
         - echo "$CI_PROJECT_DIR"
   #     - docker run --rm -v $(pwd):/app $CONTAINER_TEST_IMAGE /bin/bash -c "cd /app && $GOTEST"
         # - docker run -i --rm --workdir /app --name flows2fim_test $CONTAINER_TEST_IMAGE $GOTEST
-        - docker run -i --rm --workdir /app --name flows2fim_test -v /builds/NGWPC:/app $CONTAINER_TEST_IMAGE $GOTEST
+        - docker run -i --rm --workdir /app --name flows2fim_test -v /builds/NGWPC/flows2fim:/app $CONTAINER_TEST_IMAGE $GOTEST
         # sh -c "pwd && ls -al /app && cd flows2fim && pwd && ls -al /app/flows2fim"
 
   <<: *default_job_template
