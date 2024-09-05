@@ -48,7 +48,7 @@ test:
         - echo "$CI_PROJECT_DIR"
   #     - docker run --rm -v $(pwd):/app $CONTAINER_TEST_IMAGE /bin/bash -c "cd /app && $GOTEST"
         # - docker run -i --rm --workdir /app --name flows2fim_test $CONTAINER_TEST_IMAGE $GOTEST
-        - docker run -i --rm --name flows2fim_test -v /builds/NGWPC/flows2fim/:/app/ $CONTAINER_TEST_IMAGE sh -c "pwd && ls && cd flows2fim && pwd && ls -al"
+        - docker run -i --rm --name flows2fim_test -v /builds/NGWPC/flows2fim/:/app/flows2fim $CONTAINER_TEST_IMAGE sh -c "pwd && ls && cd flows2fim && pwd && ls -al"
 
   <<: *default_job_template
 
