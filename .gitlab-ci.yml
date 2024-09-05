@@ -1,14 +1,3 @@
-# You can copy and paste this template into a new `.gitlab-ci.yml` file.
-# You should not add this template to an existing `.gitlab-ci.yml` file by using the `include:` keyword.
-#
-# To contribute improvements to CI/CD templates, please follow the Development guide at:
-# https://docs.gitlab.com/ee/development/cicd/templates.html
-# This specific template is located at:
-# https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Bash.gitlab-ci.yml
-
-# See https://docs.gitlab.com/ee/ci/yaml/index.html for all available options
-
-# you can delete this line if you're not using Docker
 workflow:
   rules:
     - if: '$CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
@@ -17,38 +6,34 @@ workflow:
 stages:
   - build
   - test
+
 variables:
   CONTAINER_TEST_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
   GOTEST: "go test ./... -v"
-services:
-     - docker:dind
+
 before_script:
-   
-     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  # Login to the Docker registry before any job begins
+  - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
 
-.default_job_template: &default_job_template
-     image: docker:latest
-
-  
 build:
   stage: build
+  image: docker:20.10.7 # Using the official Docker image with native Docker CLI
   script:
-        - docker build --pull -t $CONTAINER_TEST_IMAGE .
-        - docker push $CONTAINER_TEST_IMAGE
-  <<: *default_job_template
+    - echo "Building the Docker image using docker build"
+    - docker build --pull -t $CONTAINER_TEST_IMAGE .
+    - docker push $CONTAINER_TEST_IMAGE
+  only:
+    - branches
+    - merge_requests
 
 test:
   stage: test
+  image: docker:20.10.7  # Use the official Docker image to run tests
   script:
-        - pwd
-        - ls -al
-        - echo "Runner directory structure:"
-        - ls -al /builds/
-        - echo "Run flows2fim unit tests"
-        - echo "$CI_PROJECT_DIR"
-  #     - docker run --rm -v $(pwd):/app $CONTAINER_TEST_IMAGE /bin/bash -c "cd /app && $GOTEST"
-        # - docker run -i --rm --workdir /app --name flows2fim_test $CONTAINER_TEST_IMAGE $GOTEST
-        - docker run -i --rm --name flows2fim_test -v /builds/NGWPC/flows2fim/:/app/flows2fim $CONTAINER_TEST_IMAGE sh -c "pwd && ls && cd flows2fim && pwd && ls -al"
-
-  <<: *default_job_template
-
+    - echo "Pulling the Docker image for tests"
+    - docker pull $CONTAINER_TEST_IMAGE
+    - echo "Running tests inside the Docker container"
+    - docker run -i --rm -v /builds/NGWPC/flows2fim:/app $CONTAINER_TEST_IMAGE sh -c "pwd && ls -al /app && $GOTEST"
+  only:
+    - branches
+    - merge_requests
