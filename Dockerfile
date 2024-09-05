@@ -15,3 +15,5 @@ RUN apt-get update && \
 RUN git config --global --add safe.directory /app
 
 RUN apt-get update && apt-get install -y sudo
+
+RUN sudo --version
