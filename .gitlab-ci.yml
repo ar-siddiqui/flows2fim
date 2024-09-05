@@ -23,7 +23,6 @@ variables:
 services:
      - docker:dind
 before_script:
-     - yum update 
      - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
 
 .default_job_template: &default_job_template
