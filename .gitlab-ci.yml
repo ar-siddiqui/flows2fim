@@ -44,7 +44,7 @@ test:
         - ls -al /builds/NGWPC/flows2fim
         - echo "Run flows2fim unit tests"
         - echo "$CI_PROJECT_DIR"
-        - docker run -i --rm --name flows2fim_test -v /builds/NGWPC/flows2fim:/app alpine sh -c "ls -ld /app && pwd && ls -la /app && cd flows2fim && ls -la /app/flows2fim"
+        - docker run -i --rm --name flows2fim_test -v /builds/NGWPC/flows2fim:/app alpine sh -c "ls -ld /app && pwd && ls -la /app && chmod 777 /app"
   #     - docker run --rm -v $(pwd):/app $CONTAINER_TEST_IMAGE /bin/bash -c "cd /app && $GOTEST"
         # - docker run -i --rm --workdir /app --name flows2fim_test $CONTAINER_TEST_IMAGE $GOTEST
         # - docker run -i --rm --name flows2fim_test --mount type=bind,source=/builds/NGWPC/flows2fim/,target=/flows2fim -w /flows2fim $CONTAINER_TEST_IMAGE sh -c "pwd && ls && cd flows2fim && ls"
