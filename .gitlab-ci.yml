@@ -24,6 +24,7 @@ variables:
 services:
      - docker:dind
 before_script:
+     - ls
      - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
 
 .default_job_template: &default_job_template
@@ -33,7 +34,6 @@ before_script:
 build:
   stage: build
   script:
-        - ls
         - docker build --pull -t $CONTAINER_TEST_IMAGE .
         - docker push $CONTAINER_TEST_IMAGE
   <<: *default_job_template
