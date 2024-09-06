@@ -1,6 +1,7 @@
 FROM golang:1.22.1
 
 WORKDIR /app
+RUN chmod -R 777 /app
 COPY go.mod go.sum ./
 
 # Download and cache dependencies (assumes go.mod and go.sum are tidy)
