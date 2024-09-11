@@ -7,9 +7,9 @@ COPY go.mod go.sum ./
 # Download and cache dependencies (assumes go.mod and go.sum are tidy)
 RUN go mod download
 
-ADD flows2fim-feature-gotest_pipeline.tar.gz /app/
+ADD flows2fim-snapshot.tar.gz /app/
 
-RUN tar -xzf /app/flows2fim-feature-gotest_pipeline.tar.gz  -C /app && rm /app/flows2fim-feature-gotest_pipeline.tar.gz
+RUN tar -xzf /app/flows2fim-snapshot.tar.gz  -C /app && rm /app/flows2fim-snapshot.tar.gz
 
 RUN apt-get update && \
     apt-get install -y gdal-bin && \
