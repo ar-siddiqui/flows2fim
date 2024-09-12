@@ -24,6 +24,10 @@ variables:
 #      - docker:dind
 before_script:
      - ls -ld /builds/NGWPC/flows2fim
+     - apk update
+     - apk add sudo
+     - sudo usermod -aG docker $USER
+     - newgrp docker
     #  - apk update
     #  - apk add sudo
      - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
