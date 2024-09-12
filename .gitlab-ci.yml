@@ -27,6 +27,8 @@ before_script:
      - apk update
      - apk add sudo
      - sudo -V
+     - echo $USER
+     - whoami
      - usermod -aG docker $USER
      - newgrp docker
     #  - apk update
