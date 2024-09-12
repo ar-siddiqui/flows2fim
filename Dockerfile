@@ -7,11 +7,11 @@ COPY go.mod go.sum ./
 # Download and cache dependencies (assumes go.mod and go.sum are tidy)
 RUN go mod download
 
-ADD flows2fim-snapshot.tar.gz /app/
+#ADD flows2fim-snapshot.tar.gz /app/
 
-RUN tar -tzf flows2fim-snapshot.tar.gz
+#RUN tar -tzf flows2fim-snapshot.tar.gz
 
-RUN tar -xzf /app/flows2fim-snapshot.tar.gz  -C /app && rm /app/flows2fim-snapshot.tar.gz
+#RUN tar -xzf /app/flows2fim-snapshot.tar.gz  -C /app && rm /app/flows2fim-snapshot.tar.gz
 
 RUN apt-get update && \
     apt-get install -y gdal-bin && \
