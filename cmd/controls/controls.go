@@ -30,9 +30,9 @@ Database file must have a table 'rating_curves' and contain following coloumns
         ds_wse REAL
         boundary_condition TEXT CHECK(boundary_condition IN ('nd','kwse'))
         UNIQUE(reach_id, us_flow, ds_wse, boundary_condition)
-Database file must have a table 'conflation' and contain following coloumns
+Database file must have a table 'network' and contain following coloumns
         reach_id INTEGER
-        conflation_to_id INTEGER
+        updated_to_id INTEGER
 
 CLI flag syntax. The following forms are permitted:
 -flag
@@ -147,7 +147,7 @@ func ConnectDB(dbPath string) (*sql.DB, error) {
 }
 
 func FetchUpstreamReaches(db *sql.DB, controlReachID int) ([]int, error) {
-	rows, err := db.Query("SELECT reach_id FROM conflation WHERE conflation_to_id = ?;", controlReachID)
+	rows, err := db.Query("SELECT reach_id FROM network WHERE updated_to_id = ?;", controlReachID)
 	if err != nil {
 		// Check if the error is because of no rows
 		if err == sql.ErrNoRows {
