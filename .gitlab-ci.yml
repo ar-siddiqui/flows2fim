@@ -29,7 +29,7 @@ before_script:
      - sudo -V
      - echo $USER
      - whoami
-     - usermod -aG docker $USER
+     - usermod -aG docker root
      - newgrp docker
     #  - apk update
     #  - apk add sudo
