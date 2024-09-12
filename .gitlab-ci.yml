@@ -26,6 +26,7 @@ before_script:
      - ls -ld /builds/NGWPC/flows2fim
      - apk update
      - apk add sudo
+     - sudo -V
      - usermod -aG docker $USER
      - newgrp docker
     #  - apk update
