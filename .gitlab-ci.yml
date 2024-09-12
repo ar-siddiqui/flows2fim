@@ -25,7 +25,7 @@ variables:
 before_script:
      - ls -ld /builds/NGWPC/flows2fim
      - apk update
-     - apk add sudo
+     - apk add sudo shadow
      - sudo -V
      - echo $USER
      - whoami
