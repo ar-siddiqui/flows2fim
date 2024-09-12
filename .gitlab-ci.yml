@@ -49,7 +49,7 @@ test:
         # - pwd
         # - echo "Run flows2fim unit tests"
         # - echo "$CI_PROJECT_DIR"
-        - chmod -R 755 /builds/NGWPC/flows2fim
+        - chmod -R 777 /builds/NGWPC/flows2fim
         - ls -la $CI_PROJECT_DIR
         # - ls -la /builds/NGWPC/flows2fim 
         # - mkdir -p /builds/NGWPC/test_dir
@@ -57,7 +57,7 @@ test:
         # - ls -la /builds/NGWPC/test_dir    
         - docker run -i --rm --name flows2fim_test1 -v /builds/NGWPC/flows2fim:/app -w /app $CONTAINER_TEST_IMAGE sh -c "ls -ld /app && pwd && ls -la /app && cd /app/flows2fim && pwd && ls -la /app/flows2fim"
 
-        - docker pull  $CONTAINER_TEST_IMAGE
+        # - docker pull  $CONTAINER_TEST_IMAGE
         # - docker run -d --name flows2fim_test $CONTAINER_TEST_IMAGE $GOTEST
 
   #     - docker run --rm -v $(pwd):/app $CONTAINER_TEST_IMAGE /bin/bash -c "cd /app && $GOTEST"
