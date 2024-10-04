@@ -13,6 +13,8 @@ RUN go mod download
 
 #RUN tar -xzf /app/flows2fim-snapshot.tar.gz  -C /app && rm /app/flows2fim-snapshot.tar.gz
 
+RUN mkdir -p /mnt
+
 RUN apt-get update && \
     apt-get install -y gdal-bin && \
     apt-get clean && \
