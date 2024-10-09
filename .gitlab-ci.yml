@@ -62,7 +62,7 @@ test:
         # - mkdir -p /builds/NGWPC/test_dir
         # - echo "Hello" > /builds/NGWPC/test_dir/hello.txt
         # - ls -la /builds/NGWPC/test_dir    
-        - docker run -i --rm --name flows2fim_test1 -v /builds/NGWPC/flows2fim:/mnt $CONTAINER_TEST_IMAGE sh -c "chmod -R 777 /mnt && ls -ld /mnt && pwd && ls -la /mnt && cd /mnt/flows2fim && pwd && ls -la /mnt/flows2fim"
+        - docker run -i --rm --name flows2fim_test1 -v /builds/NGWPC/flows2fim:/mnt $CONTAINER_TEST_IMAGE sh -c "go list all && chmod -R 777 /mnt && ls -ld /mnt && pwd && ls -la /mnt && cd /mnt/flows2fim && pwd && ls -la /mnt/flows2fim"
         # - docker run -u $(id -u):$(id -g) -v /builds/NGWPC/flows2fim:/app -w /app $CONTAINER_TEST_IMAGE sh -c "ls -ld /app && pwd && ls -la /app && cd /app/flows2fim && pwd && ls -la /app/flows2fim"
         # - docker pull  $CONTAINER_TEST_IMAGE
         # - docker run -d --name flows2fim_test $CONTAINER_TEST_IMAGE $GOTEST
