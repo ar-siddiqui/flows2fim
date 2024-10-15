@@ -9,36 +9,67 @@
 # See https://docs.gitlab.com/ee/ci/yaml/index.html for all available options
 
 # you can delete this line if you're not using Docker
-image: busybox:latest
+workflow:
+  rules:
+    - if: '$CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+    - when: never
 
+stages:
+  - build
+  - test
+variables:
+  CONTAINER_TEST_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+  GOTEST: "go test ./... -v"
+# services:
+#      - docker:dind
 before_script:
-  - echo "Before script section"
-  - echo "For example you might run an update here or install a build dependency"
-  - echo "Or perhaps you might print out some debugging details"
+     - ls -ld /builds/NGWPC/flows2fim
+     - apk update
+     - apk add sudo shadow
+     - sudo -V
+     - echo $USER
+     - whoami
+     - usermod -aG docker root
+    #  - newgrp docker
+    #  - apk update
+    #  - apk add sudo
+     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
 
-after_script:
-  - echo "After script section"
-  - echo "For example you might do some cleanup here"
+.default_job_template: &default_job_template
+     image: docker:latest
 
-build1:
+  
+build:
   stage: build
   script:
-    - echo "Do your build here"
+        - docker build --pull -t $CONTAINER_TEST_IMAGE .
+        - docker push $CONTAINER_TEST_IMAGE
+        - ls -la $CI_PROJECT_DIR
+  <<: *default_job_template
+  artifacts:
+     paths:
+        - $CI_PROJECT_DIR
 
-test1:
+test:
   stage: test
   script:
-    - echo "Do a test here"
-    - echo "For example run a test suite"
+        # - pwd
+        # - echo "Run flows2fim unit tests"
+        # - echo "$CI_PROJECT_DIR"
+        - chmod -R 777 /builds/NGWPC/flows2fim
+        - ls -la $CI_PROJECT_DIR
+        # - ls -la /builds/NGWPC/flows2fim 
+        # - mkdir -p /builds/NGWPC/test_dir
+        # - echo "Hello" > /builds/NGWPC/test_dir/hello.txt
+        # - ls -la /builds/NGWPC/test_dir    
+        - docker run -i --rm --name flows2fim_test1 -v /builds/NGWPC/flows2fim:/app/flows2fim $CONTAINER_TEST_IMAGE sh -c "ls -la /app && go list ./. && chmod -R 777 /app && ls -ld /app && pwd && ls -la /app && cd /app/flows2fim && pwd && ls -la /app/flows2fim"
+        # - docker run -u $(id -u):$(id -g) -v /builds/NGWPC/flows2fim:/app -w /app $CONTAINER_TEST_IMAGE sh -c "ls -ld /app && pwd && ls -la /app && cd /app/flows2fim && pwd && ls -la /app/flows2fim"
+        # - docker pull  $CONTAINER_TEST_IMAGE
+        # - docker run -d --name flows2fim_test $CONTAINER_TEST_IMAGE $GOTEST
 
-test2:
-  stage: test
-  script:
-    - echo "Do another parallel test here"
-    - echo "For example run a lint test"
+  #     - docker run --rm -v $(pwd):/app $CONTAINER_TEST_IMAGE /bin/bash -c "cd /app && $GOTEST"
+        # - docker run -i --rm --workdir /app --name flows2fim_test $CONTAINER_TEST_IMAGE $GOTEST
+        # - docker run -i --rm --name flows2fim_test --mount type=bind,source=/builds/NGWPC/flows2fim/,target=/flows2fim -w /flows2fim $CONTAINER_TEST_IMAGE sh -c "pwd && ls && cd flows2fim && ls"
 
-deploy1:
-  stage: deploy
-  script:
-    - echo "Do your deploy here"
-  environment: production
+  <<: *default_job_template
+
