@@ -243,12 +243,16 @@ func TraverseUpstream(db *sql.DB, flows map[int]float32, startReaches []ControlD
 			if err != nil {
 				return []ResultRecord{}, fmt.Errorf("error fetching rating curve for reach %d: %v", current.ReachID, err)
 			}
-			if math.Abs(float64(rc.ControlReachStage)-float64(current.ControlReachStage)) > 1 && rc.ReachID != 0 {
-				log.Print(utils.ColorizeWarning(fmt.Sprintf("Warning: Large difference in target vs found Control Reach Stage for reach %v: %.1f vs %.1f, Boundary Condition picked is %s", current.ReachID, current.ControlReachStage, rc.ControlReachStage, rc.BoundaryCondition)))
+			if math.Abs(float64(rc.ControlReachStage)-float64(current.ControlReachStage)) > 1 && // difference is greater than 1
+				rc.ReachID != 0 &&
+				!(float64(rc.ControlReachStage) > float64(current.ControlReachStage) && rc.BoundaryCondition == "nd") { // sometimes the difference can be because the d/s stage is lower than `nd` stage for this reach, so ignore that condition
+				log.Print(utils.ColorizeWarning(fmt.Sprintf("Warning: Large difference in target vs found Control Reach Stage for reach %v: %.1f vs %.1f, Boundary Condition picked is %s",
+					current.ReachID, current.ControlReachStage, rc.ControlReachStage, rc.BoundaryCondition)))
 			}
 		}
 		if math.Abs(float64(flow)-float64(rc.Flow))/float64(flow) > 0.25 && rc.ReachID != 0 {
-			log.Print(utils.ColorizeWarning(fmt.Sprintf("Warning: Large difference in target vs found flow for reach %v: %.1f vs %d", current.ReachID, flow, rc.Flow)))
+			log.Print(utils.ColorizeWarning(fmt.Sprintf("Warning: Large difference in target vs found flow for reach %v: %.1f vs %d",
+				current.ReachID, flow, rc.Flow)))
 		}
 
 		// Fetch upstream reaches
