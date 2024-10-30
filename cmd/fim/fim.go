@@ -39,7 +39,11 @@ Arguments:`
 
 var gdalCommands = map[string]string{
 	"vrt": "gdalbuildvrt",
-	"tif": gdalMergeName,
+	"tif": "gdalwarp",
+	"cog": "gdalwarp",
+	// not using gdal_merge since gdalwarp allow writing to COG while gdam_merge does not
+	// also, it is more powerful than gdal_merge
+	// also it has consistent name across plateforms unlike gdal_merge vs gdal_merge.py
 }
 
 // Check GDAL tools available checks if gdalbuildvrt is available in the environment.
@@ -83,13 +87,15 @@ func Run(args []string) (gdalArgs []string, err error) {
 	flags.StringVar(&fimLibDir, "lib", ".", "Directory containing FIM Library. GDAL VSI paths can be used, given GDAL must have access to cloud creds")
 	flags.BoolVar(&relative, "rel", true, "If relative paths should be used in VRT")
 	flags.StringVar(&controlsFile, "c", "", "Path to the controls CSV file")
-	flags.StringVar(&outputFormat, "fmt", "vrt", "Output format: 'vrt' or 'tif'")
+	flags.StringVar(&outputFormat, "fmt", "vrt", "Output format: 'vrt', 'cog' or 'tif'")
 	flags.StringVar(&outputFile, "o", "", "Output FIM file path")
 
 	// Parse flags from the arguments
 	if err := flags.Parse(args); err != nil {
 		return []string{}, fmt.Errorf("error parsing flags: %v", err)
 	}
+
+	outputFormat = strings.ToLower(outputFormat) // COG, cog, VRT, vrt all okay
 
 	// Validate required flags
 	if controlsFile == "" || fimLibDir == "" || outputFile == "" {
@@ -173,10 +179,29 @@ func Run(args []string) (gdalArgs []string, err error) {
 	}
 	defer os.Remove(tempFileName)
 
-	if outputFormat == "vrt" {
+	switch outputFormat {
+	case "vrt":
 		gdalArgs = []string{"-input_file_list", tempFileName, absOutputPath}
-	} else if outputFormat == "tif" {
-		gdalArgs = []string{"-n", "-9999.0", "-a_nodata", "-9999.0", "-co", "COMPRESS=DEFLATE", "-o", absOutputPath, "--optfile", tempFileName}
+
+	case "tif":
+		gdalArgs = []string{
+			"-srcnodata", "-9999.0",
+			"-dstnodata", "-9999.0",
+			"-co", "COMPRESS=DEFLATE", // we are not doing predictor because we are not sure what will be our input tifs format https://kokoalberti.com/articles/geotiff-compression-optimization-guide/?ref=feed.terramonitor.com
+			"--optfile", tempFileName,
+			"-overwrite", absOutputPath,
+		}
+
+	case "cog":
+		// Simplified COG creation
+		gdalArgs = []string{
+			"-srcnodata", "-9999.0",
+			"-dstnodata", "-9999.0",
+			"-co", "COMPRESS=DEFLATE",
+			"-of", "COG",
+			"--optfile", tempFileName,
+			"-overwrite", absOutputPath,
+		}
 	}
 
 	cmd := exec.Command(gdalCommands[outputFormat], gdalArgs...)
