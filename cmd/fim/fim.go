@@ -148,6 +148,10 @@ func Run(args []string) (gdalArgs []string, err error) {
 		return []string{}, fmt.Errorf("error reading CSV file: %v", err)
 	}
 
+	if len(records) < 2 {
+		return []string{}, fmt.Errorf("no records in control file")
+	}
+
 	var tifFiles []string
 	for _, record := range records[1:] { // Skip header row
 		reachID := record[0]
@@ -198,8 +202,9 @@ func Run(args []string) (gdalArgs []string, err error) {
 			"-dstnodata", "-9999.0",
 			"-co", "COMPRESS=DEFLATE",
 			"-of", "COG",
+			"-overwrite",
 			"--optfile", tempFileName,
-			"-overwrite", absOutputPath,
+			absOutputPath,
 		}
 	}
 
@@ -214,7 +219,7 @@ func Run(args []string) (gdalArgs []string, err error) {
 		return []string{}, fmt.Errorf("error running %s: %v", gdalCommands[outputFormat], err)
 	}
 
-	fmt.Printf("FIM created at %s\n", absOutputPath)
+	fmt.Printf("Composite FIM created at %s\n", absOutputPath)
 
 	return gdalArgs, nil
 }

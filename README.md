@@ -29,9 +29,9 @@ Dependencies:
 
 1. Download Baxter sample data from ` s3://fimc-data/flows2fim/sample_data/v0_2_0/Baxter` if you don't have a dataset already.
 
-1. To create control file from 100yr flows file run `flows2fim controls -db "Baxter/ripple.gpkg" -f "Baxter/flows/flows_100yr_cfs.csv" -o "Baxter/outputs/controls_100yr.csv" -sids 2821866`
+1. To create control file from 100yr flows file run `flows2fim controls -db "Baxter/ripple.gpkg" -f "Baxter/flows/flows_100yr_cfs.csv" -o "Baxter/controls_100yr.csv" -sids 2821866`
 
-1. To create Depth VRT run `flows2fim fim -lib "Baxter/library" -c "Baxter/outputs/controls_100yr.csv" -o "Baxter/outputs/fim_100yr.vrt"`
+1. To create Depth VRT run `flows2fim fim -lib "Baxter/library" -c "Baxter/controls_100yr.csv" -o "Baxter/fim_100yr.vrt"`
 
 ## For Developers
 
@@ -43,9 +43,9 @@ Dependencies:
 
 2. Launch a docker container using `docker compose up` and run following commands inside the container
 
-3. Run `go run main.go controls -db "testdata/Baxter/ripple.gpkg" -f "testdata/Baxter/flows/flows_100yr_cfs.csv" -o "testdata/Baxter/outputs/controls_100yr.csv" -sids 2821866` This will create a controls.csv file
+3. Run `go run main.go controls -db "testdata/Baxter/ripple.gpkg" -f "testdata/Baxter/flows/flows_100yr_cfs.csv" -o "testdata/Baxter/controls_100yr.csv" -sids 2821866` This will create a controls.csv file
 
-4. Run `go run main.go fim -lib "testdata/Baxter/library" -c "testdata/Baxter/outputs/controls_100yr.csv" -o "testdata/Baxter/outputs/fim_100yr.vrt"` This will create a VRT file. VRT can be tested by loading in QGIS.
+4. Run `go run main.go fim -lib "testdata/Baxter/library" -c "testdata/Baxter/controls_100yr.csv" -o "testdata/Baxter/fim_100yr.vrt"` This will create a VRT file. VRT can be tested by loading in QGIS.
 
 
 ### Purpose of Directories
