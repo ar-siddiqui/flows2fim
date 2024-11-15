@@ -10,8 +10,9 @@ import (
 )
 
 var usage string = `Usage of flows2fim:
-	flows2fim COMMAND Args
 	flows2fim [--version | --help]
+	flows2fim COMMAND --help
+	flows2fim COMMAND Args
 
 Commands:
   - controls: Given a flow file and a rating curves database, create a control table of reach flows and downstream boundary conditions.

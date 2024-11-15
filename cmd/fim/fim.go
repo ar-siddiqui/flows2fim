@@ -15,7 +15,9 @@ Given a control table and a fim library folder, create a flood inundation VRT or
 GDAL VSI paths can be used, given GDAL must have access to cloud creds.
 GDAL does not support relative cloud paths.
 
-FIM library folder must have this structure:
+FIM Library Specifications:
+- All maps should have same CRS, Resolution, vertical units (if any), and nodata value
+- Should have following folder structure:
 .
 ├── 2821866
 │   ├── z_nd
@@ -28,6 +30,8 @@ FIM library folder must have this structure:
 │       ├── f_10485.tif
 │       ├── f_111159.tif
 │       ├── f_11309.tif
+
+
 
 CLI flag syntax. The following forms are permitted:
 -flag
@@ -188,8 +192,6 @@ func Run(args []string) (gdalArgs []string, err error) {
 
 	case "tif":
 		gdalArgs = []string{
-			"-srcnodata", "-9999.0",
-			"-dstnodata", "-9999.0",
 			"-co", "COMPRESS=DEFLATE", // we are not doing predictor because we are not sure what will be our input tifs format https://kokoalberti.com/articles/geotiff-compression-optimization-guide/?ref=feed.terramonitor.com
 			"--optfile", tempFileName,
 			"-overwrite", absOutputPath,
@@ -198,8 +200,6 @@ func Run(args []string) (gdalArgs []string, err error) {
 	case "cog":
 		// Simplified COG creation
 		gdalArgs = []string{
-			"-srcnodata", "-9999.0",
-			"-dstnodata", "-9999.0",
 			"-co", "COMPRESS=DEFLATE",
 			"-of", "COG",
 			"-overwrite",
