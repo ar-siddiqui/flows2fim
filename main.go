@@ -6,6 +6,7 @@ import (
 
 	"flows2fim/cmd/controls"
 	"flows2fim/cmd/fim"
+	"flows2fim/cmd/validate"
 	"flows2fim/internal/config"
 )
 
@@ -51,6 +52,8 @@ func run(args []string) (err error) {
 		err = controls.Run(args[2:])
 	case "fim":
 		_, err = fim.Run(args[2:])
+	case "validate":
+		err = validate.Run(args[2:])
 	default:
 		fmt.Println("Unknown command:", args[1])
 		err = fmt.Errorf("unknown command")

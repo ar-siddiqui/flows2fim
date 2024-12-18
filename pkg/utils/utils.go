@@ -2,7 +2,6 @@ package utils
 
 import "fmt"
 
-// FormatString capitalizes the first letter of each word in a string
 func PrintSeparator() {
 	fmt.Println("---")
 }
@@ -14,5 +13,10 @@ func colorizeString(xtermNum int, text string) string {
 
 func ColorizeWarning(text string) string {
 	colored := colorizeString(214, text)
+	return colored
+}
+
+func ColorizeError(text string) string {
+	colored := colorizeString(160, text)
 	return colored
 }
