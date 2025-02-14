@@ -10,6 +10,11 @@
 
 ## Design Decisions
 
+### Fim
+1. We decided to go against allowing all GDAL args to be passed to `fim` command. The reasons are
+   - we need to provide maintenance for small use cases
+   - we are overriding default for some of options e.g. resampling method in our case should be max by default not near. Users may assume if they don't pass -r it will take GDAL default.
+
 ### Validate
 1. A  `-o_<type>` convention is used to allow for multiple outputs across subcommands.
 2. An in-memory SQLite database is attached in read-only mode, ensuring the input database is not altered.
