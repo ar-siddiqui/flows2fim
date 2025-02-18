@@ -1,32 +1,62 @@
 #!/bin/bash
 
-#       This script provies a comprehensive test suite of the built flows2fim executable on 
-#       linux systems, also including regression tests. This script, as well as testdata/reference_data 
-#       will need to be manually updated as features change. See testdata/readme.md for more information 
+#       This script provies a comprehensive test suite of the built flows2fim executable on
+#       linux systems, also including regression tests. This script, as well as testdata/reference_data
+#       will need to be manually updated as features change. See testdata/readme.md for more information
 #       on how to update the /testdata directory appropriately.
 
 usage() {
     echo "
     This script tests the built flows2fim executable's methods with a combination of parameters.
-    It must be run from the root directory of the flows2fim repository to ensure proper pathing for 
+    It must be run from the root directory of the flows2fim repository to ensure proper pathing for
     test data.
 
-    Usage: ./scripts/test_suite_linux.sh 
-
-    Providing no options, or 'all', will test all flows2fim methods- controls, fim, & validate.
+    Usage: ./scripts/test_suite_linux.sh [OPTIONS] [METHOD]
 
     OPTIONS:
-        controls: Only issue the controls tests. 
+        -d, --dev      Run tests using 'go run main.go' instead of compiled binary
+        -h, --help     Show this help message
+
+    METHODS:
+        controls: Only issue the controls tests.
             e.g.: ./scripts/test_suite_linux.sh controls
-        fim: Only issue the fim tests. 
+        fim: Only issue the fim tests.
             e.g.: ./scripts/test_suite_linux.sh fim
-        validate: Only issue the validate tests. 
+        validate: Only issue the validate tests.
             e.g.: ./scripts/test_suite_linux.sh validate
+
+    Providing no method, or 'all', will test all flows2fim methods, controls, fim, & validate.
     "
 }
 
 # Assign the command line argument if given, else 'all' is the default
-method=${1:-all}
+dev_mode=false
+cmd="flows2fim"
+method="all"  # Default to 'all'
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -d|--dev)
+            dev_mode=true
+            cmd="go run main.go"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            echo "Invalid option: $1"
+            usage
+            exit 1
+            ;;
+        *)
+            method="$1"
+            shift
+            ;;
+    esac
+done
 
 # Check if this script is being issued from the repo's root to ensure consistent filepaths
 if [ "$(git rev-parse --show-toplevel)" != "$(pwd)" ]; then
@@ -36,9 +66,9 @@ if [ "$(git rev-parse --show-toplevel)" != "$(pwd)" ]; then
 fi
 
 # Ensure flows2fim is installed, available, and executable
-if flows2fim --version > /dev/null; then
+if $cmd --version > /dev/null; then
     printf "\n\t>>>> Testing availability of flows2fim executable. Output of flows2fim --version: <<<<\n\n"
-    flows2fim --version
+    $cmd --version
 else
     printf "flows2fim is not available"
     usage
@@ -66,8 +96,8 @@ total_count=0
 total_passed=0
 
 test_help_statement() {
-    printf "\n\t>>>> Test the --help usage statement <<<<\n\n" 
-    flows2fim --help
+    printf "\n\t>>>> Test the --help usage statement <<<<\n\n"
+    $cmd --help
 }
 
 exit_if_failure() {
@@ -89,8 +119,8 @@ compare_directories() {
     for file in "$dir1"/*; do
         filename=$(basename "$file")
         filepath2="$dir2/$filename"
-        # Skip the one off .vrt relative test when comparing directories 
-        if [ "$filename" = "fim_2year_test_rel_false.vrt" ]; then 
+        # Skip the one off .vrt relative test when comparing directories
+        if [ "$filename" = "fim_2year_test_rel_false.vrt" ]; then
             continue
         fi
         # Check if the file exists in dir2, and if the "fim" argument was given
@@ -107,10 +137,10 @@ compare_directories() {
             gdalcompare.py $file $filepath2 &> "$tempfile"
             # cat "$tempfile"
             gdalcompare_output=$(tail -n 1 "$tempfile" | grep -Eo "[0-9]+" | tail -n 1)
-            # echo "gdalcompare_output: $gdalcompare_output" 
-            # Remove temp file 
+            # echo "gdalcompare_output: $gdalcompare_output"
+            # Remove temp file
             rm "$tempfile"
-            # Set tolerance value of gdalcompare 
+            # Set tolerance value of gdalcompare
             gdalcompare_difference_tolerance=2
             # If there are more than more differences than the tolerance value above, this test fails
             if (( $gdalcompare_output > $gdalcompare_difference_tolerance )); then
@@ -149,46 +179,46 @@ controls_test_cases() {
     fi
     # Create new test output directory
     mkdir -p $control_test_outputs
-    
+
     printf "\n\t###### ${num_test_cases_controls} TEST CASES FOR flows2fim controls  ######\n\n"
 
     # Define the recurrence interval array
     local recurrence_interval=(2 5 10 25 50 100)
-    printf "(1/${num_test_cases_controls})\t>>>> Generate controls.csv files from " 
+    printf "(1/${num_test_cases_controls})\t>>>> Generate controls.csv files from "
     printf "${recurrence_interval[*]} year recurrence interval data for Regression Testing. <<<<\n\n"
-    
+
         for interval in "${recurrence_interval[@]}"; do
             # Execute flows2fim with each recurrence interval
-            flows2fim controls -db $db_path/ripple.gpkg \
+            $cmd controls -db $db_path/ripple.gpkg \
                 -f $flows_files_dir/flows_${interval}year.csv \
                 -o $control_test_outputs/controls_${interval}year.csv \
                 -scsv $start_reaches_dir/start_reaches.csv
         done
-    
-    printf "\n(2/${num_test_cases_controls})\t>>>> Regression Tests for all recur. int. controls files) <<<<\n\n"
+
+    printf "\n(2/${num_test_cases_controls})\t>>>> Regression Tests for all recur. int. controls files <<<<\n\n"
         # Compare controls files from recently generated test data and benchmark data
-        # Capture the output of the comparion as a variable if there is no differnce
+        # Capture the output of the comparison as a variable if there is no difference
         diff_output=$(compare_directories "$control_test_outputs" "$controls_benchmark_dir")
 
         if [ -z "$diff_output" ]; then
             printf "\t \u2714 No difference in controls files. \n\n"
         else
-            printf "\t \u274c Outputs differ: \n" 
+            printf "\t \u274c Outputs differ: \n"
             printf "\t $diff_output \n"
             failed_controls_testcases=$((failed_controls_testcases + 1))
         fi
-    
+
     ## Assert correct errors thrown
     printf "(3/${num_test_cases_controls})\t>>>> Assert Error thrown from no start reaches parameter <<<<\n\n"
         # Create and assign temp file
         tempfile=$(mktemp)
         # Test case
-        flows2fim controls -db $db_path/ripple.gpkg \
+        $cmd controls -db $db_path/ripple.gpkg \
             -f $flows_files_dir/flows_2year.csv \
             -o $control_test_outputs/controls_2year.csv &> "$tempfile"
         # Here we use head -n 1 to capture the first line redirected to the tmp file
         first_line=$(head -n 1 "$tempfile")
-        # Remove temp file 
+        # Remove temp file
         rm "$tempfile"
         # Assign error string
         assert_expected_output_1="Error: either a CSV file or start reach IDs and control stages must be provided"
@@ -198,16 +228,16 @@ controls_test_cases() {
         else
             printf "\t \u274c Error messaging inconsistent \n\n"
             failed_controls_testcases=$((failed_controls_testcases + 1))
-        fi    
+        fi
 
     printf "(4/${num_test_cases_controls})\t>>>> Assert Error thrown from no start reaches parameter, or output parameter <<<<\n\n"
         # Create and assign temp file
         tempfile=$(mktemp)
         # Test case
-        flows2fim controls -db $db_path/ripple.gpkg -f $flows_files_dir/flows_2year.csv &> "$tempfile"
+        $cmd controls -db $db_path/ripple.gpkg -f $flows_files_dir/flows_2year.csv &> "$tempfile"
         # Here we use head -n 1 to capture the first line redirected to the tmp file
         first_line=$(head -n 1 "$tempfile")
-        # Remove temp file 
+        # Remove temp file
         rm "$tempfile"
         # Assign error string
         assert_expected_output_2="Missing required flags"
@@ -217,16 +247,16 @@ controls_test_cases() {
         else
             printf "\t \u274c Error messaging inconsistent \n\n"
             failed_controls_testcases=$((failed_controls_testcases + 1))
-        fi  
+        fi
 
     printf "(5/${num_test_cases_controls})\t>>>> Assert Error thrown from only providing db parameter <<<<\n\n"
         # Create and assign temp file
         tempfile=$(mktemp)
         # Test case
-        flows2fim controls -db $db_path/ripple.gpkg &> "$tempfile"
+        $cmd controls -db $db_path/ripple.gpkg &> "$tempfile"
         # Here we use head -n 1 to capture the first line redirected to the tmp file
         first_line=$(head -n 1 "$tempfile")
-        # Remove temp file 
+        # Remove temp file
         rm "$tempfile"
         # Assign error string
         assert_expected_output_3="Missing required flags"
@@ -243,13 +273,13 @@ controls_test_cases() {
         # Create and assign temp file
         tempfile=$(mktemp)
         # Test case
-        flows2fim controls -db $db_path/ripple.gpkg \
+        $cmd controls -db $db_path/ripple.gpkg \
             -f $flows_files_dir/flows_2year.csv \
             -o $tempfile \
             -scsv $start_reaches_dir/empty_start_reaches.csv &> /dev/null
         # Here we use head -n 2 to capture the first two line of the tmp file
         file_contents=$(head -n 2 "$tempfile")
-        # Remove temp file 
+        # Remove temp file
         rm "$tempfile"
         # Assign error string
         assert_file_output="reach_id,flow,control_stage"
@@ -259,68 +289,21 @@ controls_test_cases() {
         else
             printf "\t \u274c Failed: Output file not empty \n\n"
             failed_controls_testcases=$((failed_controls_testcases + 1))
-        fi 
+        fi
 
     printf "(7/${num_test_cases_controls})\t>>>> If flows file is empty, confirm Flow not found error thrown <<<<\n\n"
         # Create and assign temp file
         tempfile=$(mktemp)
         temp_out=$(mktemp)
         # Test case
-        flows2fim controls -db $db_path/ripple.gpkg \
+        $cmd controls -db $db_path/ripple.gpkg \
             -f $flows_files_dir/empty_file.csv \
             -o $temp_out \
             -scsv $start_reaches_dir/start_reaches.csv &> "$tempfile"
         # Assign error string
         assert_error_message="Flow not found for reach 24274737"
         file_contents=$(grep -n "$assert_error_message" "$tempfile" | cut -c 1)
-        # Remove temp files 
-        rm "$temp_out"
-        rm "$tempfile"
-        # Compare output of grep (1 indicates $assert_error_message was found in stdout redirected to file)
-        if [ "$file_contents" = 1 ]; then
-            printf "\t \u2714 Passed: Flow not found error thrown. \n\n"
-        else
-            printf "\t \u274c Failed: Flow not found error not thrown \n\n"
-            failed_controls_testcases=$((failed_controls_testcases + 1))
-        fi 
-
-    printf "(8/${num_test_cases_controls})\t>>>> If flows file's columns are swapped, confirm Flow not found error thrown <<<<\n\n"
-        # Create and assign temp file
-        tempfile=$(mktemp)
-        temp_out=$(mktemp)
-        # Test case
-        flows2fim controls -db $db_path/ripple.gpkg \
-            -f $flows_files_dir/columns_swapped.csv \
-            -o $temp_out \
-            -scsv $start_reaches_dir/start_reaches.csv &> "$tempfile"
-        # Assign error string
-        assert_error_message="Flow not found for reach 24274737"
-        file_contents=$(grep -n "$assert_error_message" "$tempfile" | cut -c 1)
-        # Remove temp files 
-        rm "$temp_out"
-        rm "$tempfile"
-        # Compare output of grep (1 indicates $assert_error_message was found in stdout redirected to file)
-        if [ "$file_contents" = 1 ]; then
-            printf "\t \u2714 Passed: Flow not found error thrown. \n\n"
-        else
-            printf "\t \u274c Failed: Flow not found error not thrown \n\n"
-            failed_controls_testcases=$((failed_controls_testcases + 1))
-        fi  
-    
-    printf "(9/${num_test_cases_controls})\t>>>> If flows file's values are empty, confirm Flow not found error thrown <<<<\n\n"
-        # Create and assign temp file
-        tempfile=$(mktemp)
-        temp_out=$(mktemp)
-        # Test case
-        flows2fim controls -db $db_path/ripple.gpkg \
-            -f $flows_files_dir/empty_flow_values_no_header.csv \
-            -o $temp_out \
-            -scsv $start_reaches_dir/start_reaches.csv &> "$tempfile"
-        
-        # Assign error string
-        assert_error_message="Flow not found for reach 24274737"
-        file_contents=$(grep -n "$assert_error_message" "$tempfile" | cut -c 1)
-        # Remove temp files 
+        # Remove temp files
         rm "$temp_out"
         rm "$tempfile"
         # Compare output of grep (1 indicates $assert_error_message was found in stdout redirected to file)
@@ -330,7 +313,54 @@ controls_test_cases() {
             printf "\t \u274c Failed: Flow not found error not thrown \n\n"
             failed_controls_testcases=$((failed_controls_testcases + 1))
         fi
-    
+
+    printf "(8/${num_test_cases_controls})\t>>>> If flows file's columns are swapped, confirm Flow not found error thrown <<<<\n\n"
+        # Create and assign temp file
+        tempfile=$(mktemp)
+        temp_out=$(mktemp)
+        # Test case
+        $cmd controls -db $db_path/ripple.gpkg \
+            -f $flows_files_dir/columns_swapped.csv \
+            -o $temp_out \
+            -scsv $start_reaches_dir/start_reaches.csv &> "$tempfile"
+        # Assign error string
+        assert_error_message="Flow not found for reach 24274737"
+        file_contents=$(grep -n "$assert_error_message" "$tempfile" | cut -c 1)
+        # Remove temp files
+        rm "$temp_out"
+        rm "$tempfile"
+        # Compare output of grep (1 indicates $assert_error_message was found in stdout redirected to file)
+        if [ "$file_contents" = 1 ]; then
+            printf "\t \u2714 Passed: Flow not found error thrown. \n\n"
+        else
+            printf "\t \u274c Failed: Flow not found error not thrown \n\n"
+            failed_controls_testcases=$((failed_controls_testcases + 1))
+        fi
+
+    printf "(9/${num_test_cases_controls})\t>>>> If flows file's values are empty, confirm Flow not found error thrown <<<<\n\n"
+        # Create and assign temp file
+        tempfile=$(mktemp)
+        temp_out=$(mktemp)
+        # Test case
+        $cmd controls -db $db_path/ripple.gpkg \
+            -f $flows_files_dir/empty_flow_values_no_header.csv \
+            -o $temp_out \
+            -scsv $start_reaches_dir/start_reaches.csv &> "$tempfile"
+
+        # Assign error string
+        assert_error_message="Flow not found for reach 24274737"
+        file_contents=$(grep -n "$assert_error_message" "$tempfile" | cut -c 1)
+        # Remove temp files
+        rm "$temp_out"
+        rm "$tempfile"
+        # Compare output of grep (1 indicates $assert_error_message was found in stdout redirected to file)
+        if [ "$file_contents" = 1 ]; then
+            printf "\t \u2714 Passed: Flow not found error thrown. \n\n"
+        else
+            printf "\t \u274c Failed: Flow not found error not thrown \n\n"
+            failed_controls_testcases=$((failed_controls_testcases + 1))
+        fi
+
     controls_passed=$((num_test_cases_controls - failed_controls_testcases))
     total_passed=$(( total_passed + controls_passed))
 }
@@ -350,42 +380,42 @@ fim_test_cases() {
 
     printf "\n\t###### ${num_test_cases_fim} TEST CASES FOR flows2fim fim  ######\n\n"
     printf "\n\t>>>> Test flows2fim fim <<<<\n\n"
-    
+
     # Define the recurrence interval array
     local recurrence_interval=(2 5 10 25 50 100)
-    printf "(1/${num_test_cases_fim})\t>>>> Generate fim_year.tif files from " 
+    printf "(1/${num_test_cases_fim})\t>>>> Generate fim_year.tif files from "
     printf "${recurrence_interval[*]} year recurrence interval data for Regression Testing. <<<<\n\n"
         local fim_file_format="tif"
         for interval in "${recurrence_interval[@]}"; do
-            # Execute flows2fim with each recurrence interval
-            flows2fim fim \
+            # Execute $cmd with each recurrence interval
+            $cmd fim \
                 -c $controls_benchmark_dir/controls_${interval}year.csv \
                 -fmt $fim_file_format \
                 -lib $library_benchmark \
                 -o $fim_test_outputs/fim_${interval}year.tif &> /dev/null
         done
-   
+
     printf "(2/${num_test_cases_fim})\t>>>> Regression Tests for all recur. int. fim.tif files <<<<\n\n"
         # Compare fim files from recently generated test data and benchmark data
-        # Capture the output of the compare_directories function as a variable 
+        # Capture the output of the compare_directories function as a variable
         diff_output=$(compare_directories "$fim_test_outputs" "$fim_benchmark_dir" "fim")
 
         # If there is no differnce, test pass
         if [ -z "$diff_output" ]; then
             printf "\t \u2714 No significant difference in fim.tif files. \n\n"
         else
-            printf "\t \u274c Outputs differ: \n\n" 
+            printf "\t \u274c Outputs differ: \n\n"
             printf "\t $diff_output \n"
             failed_fim_testcases=$((failed_fim_testcases + 1))
         fi
 
-    printf "(3/${num_test_cases_fim})\t>>>> Generate fim files in different output formats <<<<\n\n" 
+    printf "(3/${num_test_cases_fim})\t>>>> Generate fim files in different output formats <<<<\n\n"
         local file_formats=( "tif" "cog" "vrt" )
 
         for format in "${file_formats[@]}"; do
             local output_file=fim_2year.$format
             # Execute flows2fim with each file format (redirecting stdout to tidy logging)
-            flows2fim fim \
+            $cmd fim \
                 -c $controls_benchmark_dir/controls_2year.csv \
                 -fmt $format \
                 -lib $library_benchmark \
@@ -393,25 +423,25 @@ fim_test_cases() {
                 -rel false &> /dev/null
         done
 
-    printf "(4/${num_test_cases_fim})\t>>>> Regrssion Tests for different output formats <<<<\n\n" 
+    printf "(4/${num_test_cases_fim})\t>>>> Regression Tests for different output formats <<<<\n\n"
         # Note:
-        # The vrt file creation with -rel true (default behaviour) is a failing case, 
+        # The vrt file creation with -rel true (default behavior) is a failing case,
         # because the vrt contains different values for the "relativeToVRT". This is due to
-        # the behaviour of the -rel flag to flows2fim fim not working as expected.
-        # Capture the output of the comparison function as a variable 
+        # the behavior of the -rel flag to flows2fim fim not working as expected.
+        # Capture the output of the comparison function as a variable
         diff_output=$(compare_directories "$fim_reference_output_formats" "$fim_test_output_formats" "fim")
-        # If there is no differnce between directories, test pass
+        # If there is no difference between directories, test pass
         if [ -z "$diff_output" ]; then
             printf "\t \u2714 No differences in .cog, .vrt & .tif files. \n\n"
         else
-            printf "\t \u274c Outputs differ: \n\n" 
+            printf "\t \u274c Outputs differ: \n\n"
             printf "$diff_output \n"
             failed_fim_testcases=$((failed_fim_testcases + 1))
         fi
 
-    printf "(5/${num_test_cases_fim})\t>>>> Assert flows2fim fim -rel argument creates .vrt with correct xml output <<<<\n\n" 
+    printf "(5/${num_test_cases_fim})\t>>>> Assert flows2fim fim -rel argument creates .vrt with correct xml output <<<<\n\n"
         output_file=fim_2year_test_rel_false.vrt
-        flows2fim fim \
+        $cmd fim \
             -c $controls_benchmark_dir/controls_2year.csv \
             -fmt "vrt" \
             -lib $library_benchmark \
@@ -423,22 +453,22 @@ fim_test_cases() {
         if [ -z "$diff_output" ]; then
             printf "\t \u2714 No differences in .vrt files. \n\n"
         else
-            printf "\t \u274c Outputs differ: \n\n" 
+            printf "\t \u274c Outputs differ: \n\n"
             printf "$diff_output \n"
             failed_fim_testcases=$((failed_fim_testcases + 1))
         fi
 
-    printf "(6/${num_test_cases_fim})\t>>>> Assert Error thrown from no controls file parameter <<<<\n\n" 
+    printf "(6/${num_test_cases_fim})\t>>>> Assert Error thrown from no controls file parameter <<<<\n\n"
         # Create and assign temp file
         tempfile=$(mktemp)
         # Test case
-        flows2fim fim \
+        $cmd fim \
                 -fmt $format \
                 -lib $library_benchmark \
                 -o $fim_test_outputs/fim_test.tif &> "$tempfile"
         # Here we use sed -n 2 p to capture the second line redirected to the tmp file
         first_line=$(cat "$tempfile" | sed -n '2 p')
-        # Remove temp file 
+        # Remove temp file
         rm "$tempfile"
         # Assign error string
         assert_expected_output_1="Missing required flags"
@@ -448,19 +478,19 @@ fim_test_cases() {
         else
             printf "\t \u274c Error messaging inconsistent \n\n"
             failed_fim_testcases=$((failed_fim_testcases + 1))
-        fi    
+        fi
 
-    printf "(7/${num_test_cases_fim})\t>>>> Assert Error thrown from no library parameter <<<<\n\n" 
+    printf "(7/${num_test_cases_fim})\t>>>> Assert Error thrown from no library parameter <<<<\n\n"
         # Create and assign temp file
         tempfile=$(mktemp)
         # Test case
-        flows2fim fim \
+        $cmd fim \
                 -c $controls_benchmark_dir/controls_2year.csv \
                 -fmt "tif" \
                 -o $fim_test_outputs/fim_test.tif &> "$tempfile"
         # Here we use head -n 1 to capture the first line redirected to the tmp file
         first_line=$(tail -n 1 "$tempfile")
-        # Remove temp file 
+        # Remove temp file
         rm "$tempfile"
         # Assign error string
         assert_expected_output_1="Error: error running gdalwarp: exit status 2"
@@ -470,19 +500,19 @@ fim_test_cases() {
         else
             printf "\t \u274c Error messaging inconsistent \n\n"
             failed_fim_testcases=$((failed_fim_testcases + 1))
-        fi 
+        fi
 
-    printf "(8/${num_test_cases_fim})\t>>>> Assert Error thrown from no output file parameter <<<<\n\n" 
+    printf "(8/${num_test_cases_fim})\t>>>> Assert Error thrown from no output file parameter <<<<\n\n"
         # Create and assign temp file
         tempfile=$(mktemp)
         # Test case
-        flows2fim fim \
+        $cmd fim \
                 -c $controls_benchmark_dir/controls_2year.csv \
                 -fmt $format \
                 -lib $library_benchmark &> "$tempfile"
         # Here we use sed -n 2 p to capture the second line redirected to the tmp file
         first_line=$(cat "$tempfile" | sed -n '2 p')
-        # Remove temp file 
+        # Remove temp file
         rm "$tempfile"
         # Assign error string
         assert_expected_output_1="Missing required flags"
@@ -492,20 +522,20 @@ fim_test_cases() {
         else
             printf "\t \u274c Error messaging inconsistent \n\n"
             failed_fim_testcases=$((failed_fim_testcases + 1))
-        fi  
+        fi
 
-    printf "(9/${num_test_cases_fim})\t>>>> Assert Error thrown from empty controls file <<<<\n\n" 
+    printf "(9/${num_test_cases_fim})\t>>>> Assert Error thrown from empty controls file <<<<\n\n"
         # Create and assign temp file
         tempfile=$(mktemp)
         # Test case
-        flows2fim fim \
+        $cmd fim \
                 -c $flows_files_dir/empty_file.csv \
                 -fmt $format \
                 -lib $library_benchmark \
                 -o $fim_test_outputs/fim_test.tif &> "$tempfile"
         # Here we use head -n 1 to capture the first line redirected to the tmp file
         first_line=$(head -n 1 "$tempfile")
-        # Remove temp file 
+        # Remove temp file
         rm "$tempfile"
         # Assign error string
         assert_expected_output_1="Error: no records in control file"
@@ -515,8 +545,8 @@ fim_test_cases() {
         else
             printf "\t \u274c Error messaging inconsistent \n\n"
             failed_fim_testcases=$((failed_fim_testcases + 1))
-        fi  
-    
+        fi
+
     #printf "(10/${num_test_cases_fim})\t>>>> Test flows2fim fim pull from S3 <<<<\n\n"
 
     fim_passed=$((num_test_cases_fim - failed_fim_testcases))
@@ -528,7 +558,7 @@ validate_test_cases() {
     local num_test_cases_validate=0
     local failed_validate_testcases=0
     total_count=$(( total_count + num_test_cases_validate))
-    
+
     printf "\n\t###### ${num_test_cases_validate} TEST CASES FOR flows2fim validate  ######\n\n"
     # printf "( 1/${num_test_cases_validate})\t>>>> Test validate <<<<\n\n"
     # flows2fim validate
