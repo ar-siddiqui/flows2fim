@@ -5,9 +5,8 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"flag"
-	"flows2fim/pkg/utils"
 	"fmt"
-	"log"
+	"log/slog"
 	"math"
 	"os"
 	"strconv"
@@ -35,12 +34,8 @@ Database file must have a table 'network' and contain following coloumns
         reach_id INTEGER
         updated_to_id INTEGER
 
-CLI flag syntax. The following forms are permitted:
-	-flag
-	--flag   // double dashes are also permitted
-	-flag=x
-	-flag x  // non-boolean flags only
-Arguments:`
+
+Arguments:` // Usage should be always followed by PrintDefaults()
 
 type FlowData struct {
 	ReachID int
@@ -70,7 +65,7 @@ type ResultRecord struct {
 func ReadFlows(filePath string) (map[int]float32, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open flows file: %w", err)
 	}
 	defer file.Close()
 
@@ -131,6 +126,7 @@ func ReadStartReachesCSV(filePath string) ([]ControlData, error) {
 		startReaches = append(startReaches, ControlData{ReachID: reachID, ControlReachStage: float32(controlStage), NormalDepth: nd})
 	}
 
+	slog.Debug("Loaded start reaches", "reaches_count", len(startReaches))
 	return startReaches, nil
 }
 
@@ -144,6 +140,8 @@ func ConnectDB(dbPath string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	slog.Debug("Database connection established")
 	return db, nil
 }
 
@@ -172,18 +170,21 @@ func FetchUpstreamReaches(db *sql.DB, controlReachID int) ([]int, error) {
 		return nil, err
 	}
 
+	slog.Debug("Fetched upstream reaches", "control_reach", controlReachID, "count", len(upstreamReaches))
 	return upstreamReaches, nil
 }
 
 func FetchNormalDepthFlowStage(db *sql.DB, reachID int, flow float32) (RatingCurveRecord, error) {
 	row := db.QueryRow(`
-	SELECT us_flow, us_wse, ds_wse
-	FROM rating_curves
-	WHERE reach_id = ?
-	AND boundary_condition = 'nd'
-	ORDER BY ABS(us_flow - ? )
-	LIMIT 1;
-	`, reachID, flow)
+		SELECT us_flow, us_wse, ds_wse
+		FROM rating_curves
+		WHERE reach_id = ?
+		AND boundary_condition = 'nd'
+		ORDER BY ABS(us_flow - ? )
+		LIMIT 1;`,
+		reachID, flow,
+	)
+
 	var rc RatingCurveRecord
 	if err := row.Scan(&rc.Flow, &rc.Stage, &rc.ControlReachStage); err != nil {
 		// Check if the error is because of no rows
@@ -195,6 +196,7 @@ func FetchNormalDepthFlowStage(db *sql.DB, reachID int, flow float32) (RatingCur
 	}
 	rc.ReachID = reachID
 	rc.BoundaryCondition = "nd"
+	slog.Debug("Fetched normal depth flow stage", "reach_id", reachID, "flow", rc.Flow)
 	return rc, nil
 }
 
@@ -229,7 +231,7 @@ func TraverseUpstream(db *sql.DB, flows map[int]float32, startReaches []ControlD
 		// Get the flow for the current reach from the flows map
 		flow, ok := flows[current.ReachID]
 		if !ok {
-			log.Printf("Flow not found for reach %d", current.ReachID)
+			slog.Warn("Flow not found for reach", "reach_id", current.ReachID)
 			flow = 0
 		}
 
@@ -247,13 +249,22 @@ func TraverseUpstream(db *sql.DB, flows map[int]float32, startReaches []ControlD
 			if math.Abs(float64(rc.ControlReachStage)-float64(current.ControlReachStage)) > 1 && // difference is greater than 1
 				rc.ReachID != 0 &&
 				!(float64(rc.ControlReachStage) > float64(current.ControlReachStage) && rc.BoundaryCondition == "nd") { // sometimes the difference can be because the d/s stage is lower than `nd` stage for this reach, so ignore that condition
-				log.Print(utils.ColorizeWarning(fmt.Sprintf("Warning: Large difference in target vs found Control Reach Stage for reach %v: %.1f vs %.1f, Boundary Condition picked is %s",
-					current.ReachID, current.ControlReachStage, rc.ControlReachStage, rc.BoundaryCondition)))
+				slog.Warn("Large difference in target vs found control reach stage",
+					"reach_id", current.ReachID,
+					"target", current.ControlReachStage,
+					"found", rc.ControlReachStage,
+					"boundary_condition", rc.BoundaryCondition,
+				)
 			}
 		}
-		if math.Abs(float64(flow)-float64(rc.Flow))/float64(flow) > 0.25 && rc.ReachID != 0 {
-			log.Print(utils.ColorizeWarning(fmt.Sprintf("Warning: Large difference in target vs found flow for reach %v: %.1f vs %d",
-				current.ReachID, flow, rc.Flow)))
+
+		// to do: ignore this warning if reach is near lake
+		if math.Abs(float64(flow)-float64(rc.Flow))/float64(flow) > 0.25 && rc.ReachID != 0 { // difference is greater than 25%
+			slog.Warn("Large difference in target vs found flow",
+				"reach_id", current.ReachID,
+				"target", flow,
+				"found", rc.Flow,
+			)
 		}
 
 		// Fetch upstream reaches
@@ -283,6 +294,7 @@ func TraverseUpstream(db *sql.DB, flows map[int]float32, startReaches []ControlD
 		results = append(results, result)
 	}
 
+	slog.Debug("Completed network traversal", "records_count", len(results))
 	return results, nil
 }
 
@@ -310,7 +322,6 @@ func WriteCSV(data []ResultRecord, filePath string) error {
 }
 
 func Run(args []string) (err error) {
-	// Create a new flag set
 	flags := flag.NewFlagSet("controls", flag.ExitOnError)
 	flags.Usage = func() {
 		fmt.Println(usage)
@@ -337,7 +348,6 @@ func Run(args []string) (err error) {
 	// Validate required flags
 	// Start reaches flags are validated later
 	if dbPath == "" || flowsFilePath == "" || outputFilePath == "" {
-		fmt.Println("Missing required flags")
 		flags.PrintDefaults()
 		return fmt.Errorf("missing required flags")
 	}
@@ -406,6 +416,7 @@ func Run(args []string) (err error) {
 		return fmt.Errorf("error writing to CSV: %v", err)
 	}
 
+	slog.Debug("CSV write completed", "path", outputFilePath, "records_count", len(results))
 	fmt.Printf("Controls file created at %s\n", outputFilePath)
 	return nil
 }
