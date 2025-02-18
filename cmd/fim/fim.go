@@ -5,6 +5,7 @@ import (
 	"flag"
 	"flows2fim/pkg/utils"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +13,7 @@ import (
 )
 
 var usage string = `Usage of fim:
-Given a control table and a fim library folder, create a flood inundation VRT or a merged TIFF for the control conditions.
+Given a control table and a fim library folder, create a composite flood inundation map for the control conditions.
 GDAL VSI paths can be used, given GDAL must have access to cloud creds.
 GDAL does not support relative cloud paths.
 
@@ -75,14 +76,16 @@ func Run(args []string) (gdalArgs []string, err error) {
 		flags.PrintDefaults()
 	}
 
-	var controlsFile, fimLibDir, outputFile, outputFormat string
+	var controlsFile, fimLibDir, libType, outputFile, outputFormat, resamplingMethod string
 	var relative bool
 
 	// Define flags using flags.StringVar
-	flags.StringVar(&fimLibDir, "lib", ".", "Directory containing FIM Library. GDAL VSI paths can be used, given GDAL must have access to cloud creds")
+	flags.StringVar(&fimLibDir, "lib", "", "Directory containing FIM Library. GDAL VSI paths can be used, given GDAL must have access to cloud creds")
+	flags.StringVar(&libType, "type", "", "Type of FIM library: 'depth' or 'extent'")
 	flags.BoolVar(&relative, "rel", true, "If relative paths should be used in VRT")
 	flags.StringVar(&controlsFile, "c", "", "Path to the controls CSV file")
-	flags.StringVar(&outputFormat, "fmt", "vrt", "Output format: 'vrt', 'cog' or 'tif'")
+	flags.StringVar(&outputFormat, "fmt", "vrt", "Output file format. Valid options: 'vrt', 'cog' or 'tif'. 'vrt' is not implemented for extent library type. 'vrt' does not support resampling method, it will be ignored")
+	flags.StringVar(&resamplingMethod, "r", "max", "Resampling method. Valid options: 'max', 'min', 'average', 'bilinear', ... see https://gdal.org/en/stable/programs/gdalwarp.html#cmdoption-gdalwarp-r. Must use 'max' for extent library type or a warning would be raised.")
 	flags.StringVar(&outputFile, "o", "", "Output FIM file path")
 
 	// Parse flags from the arguments
@@ -93,11 +96,20 @@ func Run(args []string) (gdalArgs []string, err error) {
 	outputFormat = strings.ToLower(outputFormat) // COG, cog, VRT, vrt all okay
 
 	// Validate required flags
-	if controlsFile == "" || fimLibDir == "" || outputFile == "" {
+	if fimLibDir == "" || libType == "" || controlsFile == "" || outputFile == "" {
 		fmt.Println(controlsFile, fimLibDir, outputFile)
 		fmt.Println("Missing required flags")
 		flags.PrintDefaults()
 		return []string{}, fmt.Errorf("missing required flags")
+	}
+
+	if libType == "extent" {
+		if outputFormat == "vrt" {
+			return []string{}, fmt.Errorf("vrt format not implemented for extent library")
+		}
+		if resamplingMethod != "max" {
+			log.Print(utils.ColorizeError("Error: resampling method should be set to 'max' for extent library type. Results FIM would be incorrect."))
+		}
 	}
 
 	// Check if gdalbuildvrt or GDAL tool is available
@@ -185,6 +197,7 @@ func Run(args []string) (gdalArgs []string, err error) {
 	case "tif":
 		gdalArgs = []string{
 			"-co", "COMPRESS=DEFLATE", // we are not doing predictor because we are not sure what will be our input tifs format https://kokoalberti.com/articles/geotiff-compression-optimization-guide/?ref=feed.terramonitor.com
+			"-r", resamplingMethod,
 			"--optfile", tempFileName,
 			"-overwrite", absOutputPath,
 		}
@@ -194,9 +207,9 @@ func Run(args []string) (gdalArgs []string, err error) {
 		gdalArgs = []string{
 			"-co", "COMPRESS=DEFLATE",
 			"-of", "COG",
-			"-overwrite",
+			"-r", resamplingMethod,
 			"--optfile", tempFileName,
-			absOutputPath,
+			"-overwrite", absOutputPath,
 		}
 	}
 

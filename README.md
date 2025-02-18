@@ -7,7 +7,8 @@
 It has the following basic commands:
 
  - `controls`: Given a flow file and a rating curves database, create a control table of reach flows and downstream boundary conditions.
- - `fim`: Given a control table and a fim library folder. Create a flood inundation map for the control conditions.
+
+ - `fim`: Given a control table and a fim library folder. Create a composite flood inundation map for the control conditions.
 
 The following advanced commands are available but are not commonly needed:
  - `validate`: Given a FIM library folder and a rating curves database, validate there is one-to-one correspondence between the entries of the rating curves table and FIM library objects.
