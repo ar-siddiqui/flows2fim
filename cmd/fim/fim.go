@@ -5,6 +5,7 @@ import (
 	"flag"
 	"flows2fim/pkg/utils"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,12 +34,7 @@ FIM Library Specifications:
 
 
 
-CLI flag syntax. The following forms are permitted:
-	-flag
-	--flag   // double dashes are also permitted
-	-flag=x
-	-flag x  // non-boolean flags only
-Arguments:`
+Arguments:` // Usage should be always followed by PrintDefaults()
 
 var gdalCommands = map[string]string{
 	"vrt": "gdalbuildvrt",
@@ -62,12 +58,11 @@ func writeFileList(fileList []string) (string, error) {
 		}
 	}
 
+	slog.Debug("Created temporary file list", "path", tmpfile.Name(), "files_count", len(fileList))
 	return tmpfile.Name(), nil
 }
 
 func Run(args []string) (gdalArgs []string, err error) {
-	// Create a new flag set
-	err = fmt.Errorf("cli arguments error")
 	flags := flag.NewFlagSet("fim", flag.ExitOnError)
 	flags.Usage = func() {
 		fmt.Println(usage)
@@ -99,6 +94,7 @@ func Run(args []string) (gdalArgs []string, err error) {
 
 	// Check if gdalbuildvrt or GDAL tool is available
 	if !utils.CheckGDALToolAvailable(gdalCommands[outputFormat]) {
+		slog.Error("GDAL tool missing", "tool", gdalCommands[outputFormat])
 		return []string{}, fmt.Errorf("%[1]s is not available. Please install GDAL and ensure %[1]s is in your PATH", gdalCommands[outputFormat])
 	}
 
@@ -124,7 +120,7 @@ func Run(args []string) (gdalArgs []string, err error) {
 	// Processing CSV and creating VRT or TIFF
 	file, err := os.Open(controlsFile)
 	if err != nil {
-		return []string{}, fmt.Errorf("error opening CSV file: %v", err)
+		return []string{}, fmt.Errorf("error opening controls file: %v", err)
 	}
 	defer file.Close()
 
@@ -184,6 +180,12 @@ func Run(args []string) (gdalArgs []string, err error) {
 	}
 
 	cmd := exec.Command(gdalCommands[outputFormat], gdalArgs...)
+
+	slog.Debug("Executing GDAL command",
+		"command", fmt.Sprintf("%s %s", gdalCommands[outputFormat], strings.Join(gdalArgs, " ")),
+		"workdir", cmd.Dir,
+	)
+
 	// Redirecting the output to the standard output of the Go program
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

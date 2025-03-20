@@ -8,7 +8,7 @@ import (
 	"flag"
 	"flows2fim/pkg/utils"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,11 +52,6 @@ Database file must have a table 'rating_curves' and contain following columns
         UNIQUE(reach_id, us_flow, ds_wse, boundary_condition)
 
 
-CLI flag syntax. The following forms are permitted:
-	-flag
-	--flag   // double dashes are also permitted
-	-flag=x
-	-flag x  // non-boolean flags only
 Arguments:`
 
 // SQL Query Constants
@@ -203,7 +198,7 @@ func gatherVSIEntries(dir string, recursive bool) ([]dirEntry, error) {
 		lines = append(lines, scanner.Text())
 	}
 	if err := scanner.Err(); err != nil {
-		log.Print(utils.ColorizeError(fmt.Sprintf("Error: error reading lines from %s %s %v", gdalLSName, dir, err)))
+		slog.Warn("Error reading gdal_ls output", "tool", gdalLSName, "dir", dir, "error", err)
 	}
 
 	var results []dirEntry
@@ -227,7 +222,7 @@ func processLibEntry(e dirEntry, absFimLibDir string, fimChan chan<- fimRow) {
 
 	relPath, relErr := filepath.Rel(absFimLibDir, e.path)
 	if relErr != nil {
-		log.Print(utils.ColorizeError(fmt.Sprintf("Error: could not extract relative path %s: %v", e.path, relErr)))
+		slog.Error("Relative path resolution failed", "path", e.path, "error", relErr)
 		return
 	}
 	// On windows relPath will have backslashes, convert to forward slashes for /vsi paths
@@ -240,35 +235,36 @@ func processLibEntry(e dirEntry, absFimLibDir string, fimChan chan<- fimRow) {
 	if utils.SliceContains(extIgnore, ext) {
 		return
 	} else if !strings.HasSuffix(name, ".tif") {
-		log.Print(utils.ColorizeWarning(fmt.Sprintf("Warning: file is not .tif file %s", relPath)))
+		slog.Warn("Non-TIFF file found", "path", relPath)
 		return
 	}
+
 	if !strings.HasPrefix(name, "f_") {
-		log.Print(utils.ColorizeWarning(fmt.Sprintf("Warning: file does not start with f_ %s", relPath)))
+		slog.Warn("Invalid file prefix", "path", relPath)
 		return
 	}
 
 	usFlowStr := strings.TrimSuffix(strings.TrimPrefix(name, "f_"), ".tif")
 	usFlow, convErr := strconv.Atoi(usFlowStr)
 	if convErr != nil {
-		log.Print(utils.ColorizeError(fmt.Sprintf("Error: could not parse us_flow from %s", relPath)))
+		slog.Error("Invalid flow value", "path", relPath, "value", usFlowStr)
 		return
 	}
 
 	parts := strings.Split(relPath, string(os.PathSeparator))
 	if len(parts) != 3 {
-		log.Print(utils.ColorizeError(fmt.Sprintf("Error: invalid path structure for %s", relPath)))
+		slog.Error("Invalid path structure", "path", relPath)
 		return
 	}
 	reachIDStr := parts[0]
 	dirName := parts[1] // z_XXX
 	reachID, err := strconv.Atoi(reachIDStr)
 	if err != nil {
-		log.Print(utils.ColorizeError(fmt.Sprintf("Error: could not parse reachID for %s", relPath)))
+		slog.Error("Invalid reach ID", "path", relPath, "value", parts[0])
 		return
 	}
 	if !strings.HasPrefix(dirName, "z_") {
-		log.Print(utils.ColorizeError(fmt.Sprintf("Error: could not parse boundary condition for %s", relPath)))
+		slog.Error("Invalid boundary condition", "path", relPath)
 		return
 	}
 	dirSuffix := strings.TrimPrefix(dirName, "z_")
@@ -283,7 +279,7 @@ func processLibEntry(e dirEntry, absFimLibDir string, fimChan chan<- fimRow) {
 		dsWseStr := strings.ReplaceAll(dirSuffix, "_", ".")
 		dsWseFloat, parseErr := strconv.ParseFloat(dsWseStr, 64)
 		if parseErr != nil {
-			log.Print(utils.ColorizeError(fmt.Sprintf("Error: could not parse ds_wse for %s", relPath)))
+			slog.Error("Invalid downstream WSE", "path", relPath)
 			return
 		}
 		dsWse = dsWseFloat
@@ -485,7 +481,6 @@ func Run(args []string) error {
 
 	// Validate required flags
 	if dbPath == "" || fimLibDir == "" {
-		fmt.Println("Missing required flags")
 		flags.PrintDefaults()
 		return fmt.Errorf("missing required flags")
 	}
@@ -538,7 +533,7 @@ func Run(args []string) error {
 	go func() {
 		defer batchWG.Done()
 		if err := batchInsertFIMs(db, fimChan); err != nil {
-			log.Printf("Error inserting FIM rows: %v", err)
+			slog.Error("Could not insert FIM rows into memory db", "error", err)
 		}
 	}()
 
@@ -565,7 +560,7 @@ func Run(args []string) error {
 		}
 		return fmt.Errorf("no entries found in fim library directory. Not a valid fim library")
 	}
-	log.Print(utils.ColorizeDebug(fmt.Sprintf("Debug: total number of reach dir identified: %d", len(reachDirs))))
+	slog.Debug("Finished processing reach directories", "reach_dir_count", len(reachDirs))
 
 	var reachDir string
 	for _, de := range libEntries {
@@ -577,7 +572,8 @@ func Run(args []string) error {
 				defer func() { <-sem }() // Release token
 				reachEntries, err := readDir(de.path, true)
 				if err != nil {
-					log.Print(utils.ColorizeError(fmt.Sprintf("Error: could not read reach directory %s: %v", de.path, err)))
+					slog.Warn("Reach directory read error", "path", de.path, "error", err)
+					return
 				}
 				for _, e := range reachEntries {
 					processLibEntry(e, absFimLibDir, fimChan)
